@@ -1,0 +1,11 @@
+{
+  "folders": [
+    { "path": "MW" },
+    { "path": "FE" },
+    { "path": "BE" }
+  ],
+  "settings": {
+    "sqltools.defaultConnection": "Familiez MySQL (Docker)",
+    "python.pythonPath": "./MW/.venv/bin/python"
+  }
+}
