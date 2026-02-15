@@ -140,6 +140,11 @@ git pull
 - Family tree visualization
 - Person and relationship management
 
+## Dockerfiles
+
+- MW uses `MW/Dockerfile`.
+- FE development uses `FE/dockerfile.dev`.
+
 ## Troubleshooting
 
 ### Database won't start

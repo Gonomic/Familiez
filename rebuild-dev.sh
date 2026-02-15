@@ -10,26 +10,10 @@ echo "⚠️  Dit kan enkele minuten duren..."
 echo "Stopping existing containers..."
 docker stop familiez-fe familiez-mw familiez-mysql 2>/dev/null || true
 
-# Start Backend (MySQL)
+# Start all services via root compose
 echo ""
-echo "Starting Backend (MySQL)..."
-cd BE
+echo "Starting services via root docker-compose..."
 docker-compose up -d --build
-cd ..
-
-# Start Middleware
-echo ""
-echo "Starting Middleware..."
-cd MW
-docker-compose up -d --build
-cd ..
-
-# Start Frontend
-echo ""
-echo "Starting Frontend..."
-cd FE
-docker-compose up -d --build
-cd ..
 
 # Wacht op containers
 sleep 5

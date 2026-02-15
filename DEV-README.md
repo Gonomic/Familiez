@@ -35,7 +35,7 @@ Dit voorkomt onnodige rebuilds en bespaart tijd! ⚡
 ### `./rebuild-dev.sh`
 **Rebuild en start containers (VOLLEDIGE rebuild)**
 - Gebruik alleen wanneer:
-  - Dockerfile is gewijzigd
+  - MW/Dockerfile of FE/dockerfile.dev is gewijzigd
   - requirements.txt is gewijzigd
   - package.json dependencies zijn gewijzigd
   - Er problemen zijn met de containers
@@ -79,7 +79,12 @@ Dit voorkomt onnodige rebuilds en bespaart tijd! ⚡
 
 - `familiez-fe` - Frontend (React + Vite)
 - `familiez-mw` - Middleware (FastAPI)
-- `familiez-mysql` - Backend Database (MySQL 8.0)
+- `familiez-mysql` - Backend Database (MariaDB 10.6)
+
+## 🧭 Portainer (optioneel)
+
+- Eerste keer openen: stel een admin-wachtwoord in en kies local Docker environment.
+- Gebruik dit alleen lokaal; zet de poort niet open naar het internet.
 
 ## 💡 Tips
 
