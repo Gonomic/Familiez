@@ -1,30 +1,35 @@
 #!/bin/bash
 # Script om Familiez containers opnieuw te builden en te starten
 # Gebruik alleen wanneer er code wijzigingen zijn in Dockerfile/requirements/dependencies
-# Gebruik: ./rebuild-dev.sh
+# Gebruik: ./rebuild-dev.sh (from anywhere)
 
-echo "Rebuilding Familiez development containers..."
+# Change to script directory (Familiez root)
+cd "$(dirname "$0")"
+
+echo "Rebuilding Familiez development stack..."
 echo "⚠️  Dit kan enkele minuten duren..."
 
-# Stop bestaande containers
-echo "Stopping existing containers..."
-docker stop familiez-fe familiez-mw familiez-mysql 2>/dev/null || true
+# Stop en verwijder bestaande containers
+echo "Stopping and removing existing containers..."
+docker compose down
 
-# Start all services via root compose
+# Rebuild en start alle services
 echo ""
-echo "Starting services via root docker-compose..."
-docker-compose up -d --build
+echo "Building and starting services..."
+docker compose up -d --build
 
 # Wacht op containers
+echo "Waiting for services to start..."
 sleep 5
 
 # Toon status
 echo ""
 echo "Container status:"
-docker ps | grep familiez
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "NAMES|familiez"
 
 echo ""
-echo "✅ Containers rebuilt en gestart!"
+echo "✅ Familiez stack rebuilt en gestart!"
 echo "Frontend:   http://localhost:5173"
 echo "Middleware: http://localhost:8000"
 echo "Database:   localhost:3306"
+echo "Portainer:  http://localhost:9000"

@@ -6,6 +6,23 @@
   ],
   "settings": {
     "sqltools.defaultConnection": "Familiez MySQL (Docker)",
-    "python.pythonPath": "./MW/.venv/bin/python"
+    "python.pythonPath": "./MW/.venv/bin/python",
+    "sqltools.connections": [
+      {
+        "mysqlOptions": {
+          "authProtocol": "default",
+          "enableSsl": "Disabled"
+        },
+        "ssh": "Disabled",
+        "previewLimit": 50,
+        "server": "localhost",
+        "port": 3306,
+        "driver": "MariaDB",
+        "name": "Familiez backend",
+        "group": "Famliez",
+        "database": "humans",
+        "username": "root"
+      }
+    ]
   }
 }
