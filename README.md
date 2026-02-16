@@ -1,4 +1,4 @@
-# Familiez — monorepo
+# Familiez
 
 This repository contains the Familiez application composed of multiple services:
 
