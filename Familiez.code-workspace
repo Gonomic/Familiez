@@ -23,6 +23,11 @@
         "database": "humans",
         "username": "root"
       }
-    ]
+    ],
+    "chat.tools.terminal.autoApprove": {
+      "./scripts/prepare-schema.sh": true,
+      "./scripts/prepare-init.sh": true,
+      "docker compose": true
+    }
   }
 }
