@@ -27,7 +27,8 @@
     "chat.tools.terminal.autoApprove": {
       "./scripts/prepare-schema.sh": true,
       "./scripts/prepare-init.sh": true,
-      "docker compose": true
+      "docker compose": true,
+      "./start-dev.sh": true
     }
   }
 }
