@@ -2,7 +2,8 @@
   "folders": [
     { "path": "MW" },
     { "path": "FE" },
-    { "path": "BE" }
+    { "path": "BE" },
+    { "path": "MOB" }
   ],
   "settings": {
     "sqltools.defaultConnection": "Familiez MySQL (Docker)",

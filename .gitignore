@@ -3,6 +3,14 @@ BE/
 FE/
 MW/
 
+# Environment files - DO NOT VERSION
+.env
+.env.local
+.env.*.local
+
+# Secrets files
+secrets*.md
+
 # Python
 __pycache__/
 *.py[cod]

@@ -4,10 +4,10 @@ services:
     container_name: familiez-mysql
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-CHANGE_ME}
       MYSQL_DATABASE: ${DB_NAME:-humans}
-      MYSQL_USER: ${DB_USER:-HumansService}
-      MYSQL_PASSWORD: ${DB_PASSWORD:-${DB_PASSWORD}}
+      MYSQL_USER: ${DB_USER:-CHANGE_ME}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-CHANGE_ME}
     ports:
       - "3306:3306"
     volumes:
@@ -28,6 +28,9 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: mysql+pymysql://${DB_USER:-HumansService}:${DB_PASSWORD:-${DB_PASSWORD}}@mysql:3306/${DB_NAME:-humans}
+      SYNOLOGY_OIDC_DISCOVERY_URL: https://sso.dekknet.com/webman/sso/.well-known/openid-configuration
+      SYNOLOGY_CLIENT_ID: familiez-local-dev
+      SYNOLOGY_OIDC_VERIFY_SSL: "false"
     depends_on:
       mysql:
         condition: service_healthy
@@ -44,6 +47,12 @@ services:
     restart: always
     ports:
       - "5173:5173"
+    environment:
+      VITE_SYNOLOGY_AUTH_URL: https://sso.dekknet.com
+      VITE_CLIENT_ID: familiez-local-dev
+      VITE_REDIRECT_URI: http://sso.dekknet.com:5173/auth/callback
+      VITE_SYNOLOGY_DISCOVERY_URL: https://sso.dekknet.com/webman/sso/.well-known/openid-configuration
+      VITE_API_BASE: http://localhost:8000
     depends_on:
       - mw
     volumes:
