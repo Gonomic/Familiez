@@ -27,10 +27,21 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: mysql+pymysql://${DB_USER:-HumansService}:${DB_PASSWORD:-${DB_PASSWORD}}@mysql:3306/${DB_NAME:-humans}
+      DATABASE_URL: mysql+pymysql://${DB_USER}:${DB_PASSWORD}@mysql:3306/${DB_NAME}
+      ALLOWED_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173,http://192.168.1.89:5173"
       SYNOLOGY_OIDC_DISCOVERY_URL: https://sso.dekknet.com/webman/sso/.well-known/openid-configuration
-      SYNOLOGY_CLIENT_ID: familiez-local-dev
+      SYNOLOGY_CLIENT_ID: ${SYNOLOGY_CLIENT_ID}
+      SYNOLOGY_CLIENT_SECRET: ${SYNOLOGY_CLIENT_SECRET}
       SYNOLOGY_OIDC_VERIFY_SSL: "false"
+      SYNOLOGY_REDIRECT_URI: ${SYNOLOGY_REDIRECT_URI}
+      SYNOLOGY_LDAP_URL: ${SYNOLOGY_LDAP_URL}
+      SYNOLOGY_LDAP_BIND_DN: ${SYNOLOGY_LDAP_BIND_DN}
+      SYNOLOGY_LDAP_BIND_PASSWORD: ${SYNOLOGY_LDAP_BIND_PASSWORD}
+      SYNOLOGY_LDAP_GROUP_ADMIN_DN: ${SYNOLOGY_LDAP_GROUP_ADMIN_DN}
+      SYNOLOGY_LDAP_GROUP_USER_DN: ${SYNOLOGY_LDAP_GROUP_USER_DN}
+      SYNOLOGY_LDAP_MEMBER_DN_TEMPLATE: ${SYNOLOGY_LDAP_MEMBER_DN_TEMPLATE}
+      SYNOLOGY_LDAPTLS_REQCERT: ${SYNOLOGY_LDAPTLS_REQCERT}
+      SYNOLOGY_LDAP_TIMEOUT: ${SYNOLOGY_LDAP_TIMEOUT}
     depends_on:
       mysql:
         condition: service_healthy
@@ -48,11 +59,11 @@ services:
     ports:
       - "5173:5173"
     environment:
-      VITE_SYNOLOGY_AUTH_URL: https://sso.dekknet.com
-      VITE_CLIENT_ID: familiez-local-dev
-      VITE_REDIRECT_URI: http://sso.dekknet.com:5173/auth/callback
-      VITE_SYNOLOGY_DISCOVERY_URL: https://sso.dekknet.com/webman/sso/.well-known/openid-configuration
-      VITE_API_BASE: http://localhost:8000
+      VITE_SYNOLOGY_AUTH_URL: ${VITE_SYNOLOGY_AUTH_URL}
+      VITE_CLIENT_ID: ${SYNOLOGY_CLIENT_ID}
+      VITE_REDIRECT_URI: ${SYNOLOGY_REDIRECT_URI}
+      VITE_SYNOLOGY_DISCOVERY_URL: ${VITE_SYNOLOGY_DISCOVERY_URL}
+      VITE_API_BASE: ${VITE_API_BASE}
     depends_on:
       - mw
     volumes:
