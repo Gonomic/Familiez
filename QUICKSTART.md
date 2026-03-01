@@ -37,7 +37,7 @@ docker compose up -d
 sleep 40
 
 # Verify database is ready
-docker compose exec mysql mysql -uHumansService -pXHHxECL54EjvhhPSBLMU humans -e "
+docker compose exec mysql mysql -uHumansService -p${DB_PASSWORD} humans -e "
 SELECT CONCAT('✓ ', COUNT(*), ' of 11 Tables') AS Status FROM information_schema.TABLES WHERE TABLE_SCHEMA='humans'
 UNION ALL SELECT CONCAT('✓ ', COUNT(*), ' of 10 Functions') FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA='humans' AND ROUTINE_TYPE='FUNCTION'
 UNION ALL SELECT CONCAT('✓ ', COUNT(*), ' of 8 Procedures') FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA='humans' AND ROUTINE_TYPE='PROCEDURE';
@@ -81,7 +81,7 @@ docker compose logs -f mysql
 docker compose exec mysql mysql -uroot -prootpassword humans
 
 # Connect to database (application user)
-docker compose exec mysql mysql -uHumansService -pXHHxECL54EjvhhPSBLMU humans
+docker compose exec mysql mysql -uHumansService -p${DB_PASSWORD} humans
 ```
 
 ### Development Workflow
