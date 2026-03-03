@@ -1,6 +1,33 @@
 # Synology SSO Integration Plan - Numbered Steps
 **Created: 21 February 2026**
-**Status: Planning Phase**
+**Status: ✅ PRODUCTION DEPLOYMENT COMPLETE (2 maart 2026, 23:30)**
+
+---
+
+## ✅ DEPLOYMENT COMPLETED (2 maart 2026, 23:30)
+
+**Session work completed:**
+- ✅ Hostname correction identified: `api.dekknet.com` (not `api.familiez.dekknet.com`)
+- ✅ Env files updated locally (FE/.env.production, MW/.env.prod)
+- ✅ Env files copied to NAS via Nemo
+- ✅ Container Manager rebuild completed (FE + MW images rebuilt with correct env)
+- ✅ MySQL data preserved during rebuild
+- ✅ FastAPI docs accessible: `https://api.dekknet.com/docs` → 200 OK
+- ✅ OIDC discovery endpoint: `https://api.dekknet.com/auth/discovery` → 200 OK
+- ✅ FE loads successfully: `https://familiez.dekknet.com` → 200 OK
+- ✅ SSO login flow working end-to-end
+- ✅ OAuth callback successful
+- ✅ Token exchange working (FE → MW /auth/callback)
+- ✅ Access token stored in localStorage
+- ✅ Authenticated API calls working (protected endpoints return data)
+
+**All deployment steps completed:**
+1. ✅ Env files copied to NAS (via Nemo)
+2. ✅ Container rebuild via Container Manager GUI
+3. ✅ API endpoint verification
+4. ✅ Reverse proxy configured (familiez.dekknet.com + api.dekknet.com)
+5. ✅ SSL certificates bound correctly
+6. ✅ End-to-end SSO login flow tested and working
 
 ---
 
@@ -101,147 +128,201 @@
 
 ---
 
-## PHASE 2: SYNOLOGY NAS DEPLOYMENT
+## PHASE 2: SYNOLOGY NAS DEPLOYMENT (DEKKNET.COM)
+
+### Scope for this phase
+- Target deployment: `FE` + `MW` + `MariaDB` on Synology Container Manager
+- Identity: Synology SSO + Synology LDAP (already used in MW)
+- Domain/DDNS: `familiez.dekknet.com` (FE) + `api.familiez.dekknet.com` (API)
+- API runtime port (internal): `8000`
+- DB engine: MariaDB 10.6 (not PostgreSQL)
+- Critical requirement: database files must stay synchronized with a NAS folder using bind mounts
 
 ### Pre-Deployment Setup
 
-**2.1** Update Synology SSO Application for production
-- Go to Control Panel → Domain/LDAP → SSO Server
-- Create new OAuth 2.0 Application: `familiez-prod` OR update existing
-- Add Redirect URI: `https://dekknet.com/auth/callback`
-- Update Client Secret in secure location
-- **Status:** ☐ Not Started
+**2.1** Create/update Synology SSO production app
+- DSM → **SSO Server** → **Toepassing (Applications)**
+- Create app `familiez-prod` (or update current app)
+- Add redirect URI: `https://familiez.dekknet.com/auth/callback`
+- Optional DDNS fallback: `https://<your-ddns-hostname>/auth/callback`
+- Store client secret in NAS secrets file (not in git)
+- Confirmed app id: `134a695b24e74328968844f7e4c1208d`
+- Confirmed redirect URI: `https://familiez.dekknet.com/auth/callback`
+- **Status:** ✅ Done
 
 **2.2** Verify Synology prerequisites
-- Docker is installed on NAS
-- Sufficient storage available (`/volume1/` has space)
-- Domain (dekknet.com) resolves correctly via DDNS
-- SSL certificate is valid (or self-signed works)
-- **Status:** ☐ Not Started
+- Container Manager installed and running
+- DNS/DDNS for `dekknet.com` points to NAS public IP
+- SSL certificate valid for `dekknet.com`
+- NAS folders available under `/volume1/docker/familiez`
+- **Status:** ✅ Done
 
-**2.3** Update FE environment for production
+**2.3** Create NAS folder structure (for persistent sync)
+- Create folders:
+  - `/volume1/docker/familiez/compose`
+  - `/volume1/docker/familiez/env`
+  - `/volume1/docker/familiez/mysql-data`
+  - `/volume1/docker/familiez/mysql-backup`
+  - `/volume1/docker/familiez/logs`
+- MariaDB data must map to `/volume1/docker/familiez/mysql-data:/var/lib/mysql`
+- **Status:** ✅ Done
+
+**2.4** Create FE production environment
 - File: `FE/.env.production`
-- Set VITE_SYNOLOGY_AUTH_URL to production Synology domain
-- Set VITE_CLIENT_ID to `familiez-prod`
-- Set VITE_REDIRECT_URI to `https://dekknet.com/auth/callback`
-- Set VITE_API_BASE to `https://dekknet.com/api`
-- **Status:** ☐ Not Started
+- Required keys:
+  - `VITE_SYNOLOGY_AUTH_URL=https://sso.dekknet.com`
+  - `VITE_CLIENT_ID=134a695b24e74328968844f7e4c1208d`
+  - `VITE_REDIRECT_URI=https://familiez.dekknet.com/auth/callback`
+  - `VITE_SYNOLOGY_DISCOVERY_URL=https://sso.dekknet.com/webman/sso/.well-known/openid-configuration`
+  - `VITE_API_BASE=https://api.dekknet.com` ✅ (corrected from api.familiez.dekknet.com)
+- **Status:** ✅ Done
 
-**2.4** Update MW environment for production
-- File: `MW/.env.prod`
-- Set SYNOLOGY_JWKS_URL to production value
-- Set SYNOLOGY_CLIENT_ID to `familiez-prod`
-- Set SYNOLOGY_CLIENT_SECRET to production secret
-- Set DATABASE_URL for your NAS database
-- **Status:** ☐ Not Started
+**2.5** Create MW production environment
+- File: `MW/.env.prod` (template in git), real secrets on NAS only
+- Required keys:
+  - `SYNOLOGY_OIDC_DISCOVERY_URL=https://sso.dekknet.com/webman/sso/.well-known/openid-configuration`
+  - `SYNOLOGY_CLIENT_ID=134a695b24e74328968844f7e4c1208d`
+  - `SYNOLOGY_CLIENT_SECRET=UET32KPWSPOLtMOr8HXK2LcUaryXfd4i` ✅
+  - `SYNOLOGY_REDIRECT_URI=https://familiez.dekknet.com/auth/callback`
+  - `ALLOWED_ORIGINS=https://familiez.dekknet.com,https://www.familiez.dekknet.com,https://api.dekknet.com`
+  - `SYNOLOGY_OIDC_VERIFY_SSL=true`
+  - LDAP variables (`SYNOLOGY_LDAP_*`)
+  - `DATABASE_URL=mysql+pymysql://HumansService:v_|ZOeI2~p:dfF%X~Dx@mysql:3306/humans`
+- **Status:** ✅ Done
 
-### Building Docker Images
+### Build & Package
 
-**2.5** Build frontend Docker image for production
-- From FE folder: `docker build -t familiez-frontend:prod -f dockerfile .`
-- Tag appropriately for NAS registry if using
-- **Status:** ☐ Not Started
+**2.6** Build frontend production image
+- From `FE`: `docker build -t familiez-fe:prod -f dockerfile .`
+- Uses nginx static serving (already present)
+- **Status:** ✅ Done
 
-**2.6** Build middleware Docker image for production
-- From MW folder: `docker build -t familiez-middleware:prod .`
-- Include all dependencies from requirements.txt
-- **Status:** ☐ Not Started
+**2.7** Build middleware production image
+- From `MW`: `docker build -t familiez-mw:prod .`
+- Note: current `start.sh` runs `--reload` when `DEBUG!=1`; set `DEBUG=0` and update runtime if needed
+- **Status:** ✅ Done
 
-**2.7** (Optional) Build database image or prepare database
-- Use PostgreSQL image OR prepare existing database credentials
-- Ensure database is accessible from Docker containers
-- **Status:** ☐ Not Started
+**2.8** Prepare database container with automatic initialization
+- Use `mariadb:10.6`
+- Bind mount `/volume1/docker/familiez/mysql-data:/var/lib/mysql` (persistent data)
+- Bind mount `/volume1/docker/familiez/mysql-init:/docker-entrypoint-initdb.d:ro` (init scripts, read-only)
+- SQL scripts in `BE/init/` folder (01-schema.sql, 02-*.sql procedures/functions, 03-releases-data.sql)
+- MariaDB automatically executes scripts in alphabetical order on first start (only when data folder is empty)
+- Copy `BE/init/` folder contents to `/volume1/docker/familiez/mysql-init` on NAS via File Station
+- **Status:** ✅ Done
+
+**2.8a** Copy database init scripts to NAS
+- Use File Station or Nemo to copy all files from `BE/init/` to `/volume1/docker/familiez/mysql-init/`
+- Verify read permissions (should be owned by root or user 0, readable by all)
+- Total: 1 schema file + 60+ stored procedure/function files + 1 releases data file
+- **Status:** ✅ Done
 
 ### Deployment on Synology
 
-**2.8** SSH into Synology NAS
-- `ssh admin@dekknet.com`
-- Navigate to docker directory: `cd /volume1/docker/familiez` (create if needed)
-- **Status:** ☐ Not Started
+**2.9** Create production compose on NAS
+- File: `/volume1/docker/familiez/docker-compose.yml` (project root - Container Manager vereist)
+- Services: `fe`, `mw`, `mysql`
+- Internal Docker network only
+- MariaDB uses bind mount to NAS path (step 2.3)
+- Option B: keep `build:` enabled and use NAS build contexts:
+  - `/volume1/docker/familiez/MW-build`
+  - `/volume1/docker/familiez/FE-build`
+- **Status:** ✅ Done
 
-**2.9** Create production docker-compose file on NAS
-- File: `/volume1/docker/familiez/docker-compose.prod.yml`
-- Configure all three services (frontend, middleware, database)
-- Set environment variables via .env file or inline
-- **Status:** ☐ Not Started
+**2.9a** Create clean build folders on NAS (Option B)
+- Create folders:
+  - `/volume1/docker/familiez/MW-build`
+  - `/volume1/docker/familiez/FE-build`
+- Copy only required production build files (avoid dev clutter like `.git`, `node_modules`, `.venv`, `__pycache__`)
+- `MW-build` required files:
+  - `Dockerfile`, `requirements.txt`, `start.sh`, `main.py`, `auth.py`
+- `FE-build` required files:
+  - `dockerfile`, `nginx.conf`, `package.json`, `package-lock.json`, `vite.config.js`, `index.html`, `.env.production`, `public/`, `src/`
+- **Status:** ✅ Done
 
-**2.10** Create environment file on NAS
-- File: `/volume1/docker/familiez/.env`
-- Set all production secrets and configurations
-- Ensure proper file permissions (not world-readable)
-- **Status:** ☐ Not Started
+**2.10** Create production env file on NAS
+- File: `/volume1/docker/familiez/.env` (project root - naast docker-compose.yml, Container Manager vereist)
+- Original location also kept: `/volume1/docker/familiez/env/.env.prod` (backup)
+- Restrict permissions: `chmod 600`
+- Never commit this file
+- **Status:** ✅ Done
 
-**2.11** Start Docker containers on NAS
-- `docker-compose -f docker-compose.prod.yml up -d`
-- Verify containers are running: `docker ps`
-- Check logs: `docker-compose logs -f`
-- **Status:** ☐ Not Started
+**2.11** Deploy stack on NAS with updated env files (hostname migration)
+- ✅ Env files copied to NAS:
+  - `FE/.env.production` → `/volume1/docker/familiez/FE-build/.env.production`
+  - `MW/.env.prod` → `/volume1/docker/familiez/.env`
+- ✅ Rebuild completed via Container Manager GUI:
+  - Project `familiez-prod` stopped and deleted (volumes preserved!)
+  - Project recreated with `--build` enabled
+  - FE + MW images rebuilt successfully with new env vars
+  - MySQL data preserved (3 containers running)
+  - Build duration: ~5 minutes
+- ✅ Validation completed:
+  - All 3 containers running: familiez-fe-prod, familiez-mw-prod, familiez-mysql-prod
+  - `https://api.dekknet.com/docs` → FastAPI swagger docs loaded ✅
+  - `https://api.dekknet.com/auth/discovery` → OIDC discovery JSON ✅
+  - MW logs: "Application startup complete" visible, no errors
+- **Status:** ✅ Done - DEPLOYMENT SUCCESSFUL
 
-### Reverse Proxy Configuration
+### Reverse Proxy & Routing
 
-**2.12** Configure Synology Reverse Proxy for Frontend
-- Control Panel → Application Portal → Reverse Proxy
-- Create new rule:
-  - Source: `https://dekknet.com` port 443
-  - Destination: `http://localhost:3000` (or container name)
-  - Protocol: HTTPS
-- **Status:** ☐ Not Started
+**2.12** Configure reverse proxy for FE
+- Synology Control Panel → Login Portal / Reverse Proxy
+- Source: `https://familiez.dekknet.com:443`
+- Destination: `http://localhost:18080`
+- **Status:** ✅ Done
 
-**2.13** Configure Synology Reverse Proxy for API
-- Create new rule:
-  - Source: `https://dekknet.com/api` port 443
-  - Destination: `http://middleware:5000` (or container IP)
-  - Protocol: HTTP
-- **Status:** ☐ Not Started
+**2.13** Configure reverse proxy for API
+- Source: `https://api.dekknet.com:443`
+- Destination: `http://localhost:18000`
+- Use subdomain routing (DSM build without path-based source matching)
+- **Status:** ✅ Done
 
-**2.14** Enable WebSocket support (if needed)
-- Check reverse proxy settings for WebSocket support
-- Configure timeouts appropriately
-- **Status:** ☐ Not Started
+### SSL & Validation
 
-### SSL & Security
+**2.14** Validate SSL/TLS and OIDC endpoints
+- ✅ Cert chain verified for `familiez.dekknet.com` and `api.dekknet.com`
+- ✅ OIDC discovery endpoint `https://sso.dekknet.com/webman/sso/.well-known/openid-configuration` verified
+- ✅ SSL termination working (reverse proxy handling HTTPS)
+- **Status:** ✅ Done
 
-**2.15** Configure SSL certificates on Synology
-- Use Synology's built-in certificate (auto-renewable)
-- OR use Let's Encrypt via Synology UI
-- Verify certificate is valid for dekknet.com
-- **Status:** ☐ Not Started
-
-**2.16** Test HTTPS access
-- Navigate to `https://dekknet.com`
-- Verify SSL certificate is valid (no warnings)
-- Test full SSO flow over HTTPS
-- **Status:** ☐ Not Started
+**2.15** End-to-end production test
+- ✅ Login via Synology SSO from `https://familiez.dekknet.com` - **SUCCESS**
+- ✅ FE redirects user to `https://sso.dekknet.com` for authentication
+- ✅ User logs in with Synology credentials
+- ✅ Callback to `https://familiez.dekknet.com/auth/callback` received - **SUCCESS**
+- ✅ `FE -> MW /auth/callback` token exchange succeeds
+- ✅ Access token stored in localStorage
+- ✅ Protected API endpoints return 200 with bearer token via `https://api.dekknet.com`
+- ✅ FE app loads personalized content after login
+- **Status:** ✅ Done - FULL SSO FLOW WORKING
 
 ---
 
-## PHASE 3: ONGOING MAINTENANCE
+## PHASE 3: OPERATIONS & DATA SAFETY
 
-**3.1** Monitor Docker containers on NAS
-- Regularly check: `docker ps`, `docker logs`
-- Set up log rotation to prevent disk filling
+**3.1** Container health monitoring
+- Monitor `docker ps`, logs, restart counts
 - **Status:** ☐ Not Started
 
-**3.2** Update credentials securely
-- Rotate SYNOLOGY_CLIENT_SECRET periodically
-- Update .env file without committing to git
-- Restart containers: `docker-compose restart`
+**3.2** Credential rotation process
+- Rotate `SYNOLOGY_CLIENT_SECRET` + DB credentials periodically
+- Restart affected services after update
 - **Status:** ☐ Not Started
 
-**3.3** Backup database
-- Set up automated PostgreSQL backups on NAS
-- Store backups in separate volume
+**3.3** Database backup jobs to NAS folder
+- Daily dump to `/volume1/docker/familiez/mysql-backup`
+- Keep retention policy (e.g., 14/30 days)
 - **Status:** ☐ Not Started
 
-**3.4** Handle SSL certificate renewal
-- Synology auto-renews if using Synology certificate
-- Monitor Let's Encrypt expiration if using external CA
+**3.4** Data sync verification (NAS folder ↔ container)
+- Weekly check: DB writes reflected in `/volume1/docker/familiez/mysql-data`
+- Verify permissions/ownership survive reboot/updates
 - **Status:** ☐ Not Started
 
-**3.5** Test disaster recovery
-- Verify can restore from backup
-- Document full reconstruction process
-- Test on separate NAS if available
+**3.5** Disaster recovery drill
+- Restore latest dump to test DB container
+- Validate app startup + login + key queries
 - **Status:** ☐ Not Started
 
 ---
@@ -262,10 +343,10 @@ Problem with 2.5 - getting error X
 ```
 
 ### Quick Stats
-- Total Steps: 36
+- Total Steps: 33
 - Phase 1 (Local Development): 13 steps
-- Phase 2 (NAS Deployment): 13 steps
-- Phase 3 (Maintenance): 10 steps
+- Phase 2 (NAS Deployment): 15 steps
+- Phase 3 (Maintenance): 5 steps
 
 ---
 
@@ -281,10 +362,15 @@ Problem with 2.5 - getting error X
 ## IMPORTANT NOTES
 
 ### Synology Domain & DDNS
-- Your domain: `dekknet.com`
+- Your domain: `DEKKNET.COM` (`dekknet.com`)
 - DDNS is configured on your NAS
 - SSL certificates should be valid for this domain
 - If using self-signed certs, you may need `requests` with `verify=False`
+
+### Database Persistence Requirement
+- Use bind mount (not anonymous volume) for MariaDB data on Synology
+- Required mapping: `/volume1/docker/familiez/mysql-data:/var/lib/mysql`
+- Keep scheduled SQL dumps in `/volume1/docker/familiez/mysql-backup`
 
 ### Architecture Reminder
 ```
@@ -306,5 +392,24 @@ User → React UI (FE) → Synology SSO Login
 
 ---
 
-**Last Updated:** 21 February 2026
-**Next Review:** When starting Phase 1 implementation
+## FUTURE OPTIMIZATION TODO's
+
+### Docker Image Optimization
+- **TODO:** Remove `ldap-utils` package from MW/Dockerfile
+  - Currently installed for troubleshooting purposes (`ldapsearch`, `ldapmodify`)
+  - Not required for production: `ldap3` Python library is pure Python and doesn't need system LDAP tools
+  - Remove line: `ldap-utils \` from apt-get install section
+  - Benefit: Smaller image size, faster builds
+  - Location: `MW/Dockerfile` line 7-8
+
+### Central Registry Workflow (Later Option)
+- **TODO (later):** Move to central Docker registry workflow (`build -> push -> pull on Synology`)
+  - Use immutable version tags (for example date/commit tags) plus optional `:prod`
+  - Keep Synology as runtime-only host (no source code required on NAS)
+  - Benefits: simple rollback, reproducible releases, cleaner NAS
+  - Tradeoffs: registry credentials/management and extra CI or release steps
+
+---
+
+**Last Updated:** 1 March 2026
+**Next Review:** Start with step 2.1 and 2.2
