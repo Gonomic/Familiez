@@ -1,222 +1,530 @@
 # Familiez Production Deployment Guide
-## GUI-Based Deployment (No Terminal Required)
 
 **Last Updated:** 6 maart 2026  
-**Current Versions:**
-- Frontend (FE): 0.0.1 (React/Vite)
-- Middleware (MW): FastAPI (0.104.1)
-- Mobile (MOB): 1.0.0 (Expo React Native)
-- Backend: MariaDB (SQL scripts)
+**Target:** Synology NAS (192.168.1.10) at `/volume1/docker/familiez/`
 
 ---
 
-## Architecture Overview
+## Table of Contents
 
-The Familiez stack consists of:
+1. [Deployment Overview](#deployment-overview)
+2. [First-Time Deployment (Empty Database)](#first-time-deployment-empty-database)
+3. [Update Deployment (Existing Database)](#update-deployment-existing-database)
+4. [Detailed Procedures](#detailed-procedures)
+5. [Troubleshooting](#troubleshooting)
+
+---
+
+## Deployment Overview
+
+### Architecture Stack
 
 ```
-Familiez (Docker Compose Stack)
-├── MySQL Container (MariaDB 10.6) - Database: humans
-├── Middleware Container (FastAPI) - Port 18000
-├── Frontend Container (Vite) - Served via nginx
-└── File Storage - User uploaded files
-    ├── Dev: BESTANDEN/ folder
-    └── Prod: media/ folder (on NAS)
+Familiez Production (Docker Compose)
+├── MySQL Container (MariaDB 10.6)
+│   ├── Port: 3306
+│   ├── Database: humans
+│   └── Data: ./mysql-data
+├── Middleware Container (FastAPI)
+│   ├── Port: 18000 → 8000
+│   ├── Code: ./MW-build
+│   └── Files: ./BESTANDEN
+├── Frontend Container (nginx)
+│   ├── Port: 18080 → 80
+│   └── Static: ./FE-build
+└── Portainer Container
+    └── Port: 9000
 ```
 
-**⚠️ Important Storage Difference:**
-- **Local Development:** Uses `BESTANDEN/` folder
-- **NAS Production:** Uses `media/` folder
-- Both mount to `/app/storage` inside the MW container
-- Environment variables handle the path difference
+### NAS Folder Structure
 
-**Total Size:** ~1GB (FE 333MB, MW 182MB, BE 11MB, MOB excluded from prod)
+```
+/volume1/docker/familiez/
+├── docker-compose.yml          # Production compose file
+├── .env                        # Production environment variables
+├── FE-build/                   # Frontend static files (from npm build)
+│   ├── assets/
+│   ├── index.html
+│   └── nginx.conf
+├── MW-build/                   # Middleware source code
+│   ├── main.py
+│   ├── auth.py
+│   ├── Dockerfile
+│   └── requirements.txt
+├── mysql-data/                 # Database persistent storage
+├── mysql-init/                 # SQL initialization scripts (first-time only)
+└── BESTANDEN/                  # User uploaded files
+```
 
----
+### Two Deployment Scenarios
 
-## Current Local Status (Development Machine)
-
-### ✅ What You Have:
-- **FE (Frontend):** Complete React/Vite application with components
-- **MW (Middleware):** FastAPI with authentication, file handling, LDAP/SSO integration
-- **BE (Backend):** 300+ SQL initialization scripts and stored procedures
-- **Configuration:** docker-compose.yml and docker-compose.prod.yml ready
-- **Environment:** .env with credentials (stays local, not synced to git)
-
-### ⚠️ Key Files to Know:
-- `docker-compose.prod.yml` - Production deployment config
-- `FE/.env.production` - Frontend production settings
-- `.env` - Local credentials (NEVER push to git)
-- `BE/init/` - SQL initialization scripts
-- `BESTANDEN/` - User file storage on dev machine (excluded from version control)
-- `media/` - User file storage on NAS production (must be created on NAS)
-
----
-
-## Pre-Deployment Checklist
-
-- [ ] Verify NAS is online and accessible
-- [ ] Know NAS SSH password (for emergency rollback only)
-- [ ] Backup current production database on NAS
-- [ ] Confirm NAS has 2GB free space
-- [ ] Have production .env credentials ready
-- [ ] Schedule deployment during low-usage time
+| Scenario | Database State | Init Scripts | Time Required | Risk Level |
+|----------|---------------|--------------|---------------|------------|
+| **First-Time** | Empty/New | Required | 30-45 min | Low |
+| **Update** | Existing | Not needed | 10-15 min | Medium |
 
 ---
 
-## Deployment Overview - Main Steps
+## First-Time Deployment (Empty Database)
 
-This is a high-level overview of the deployment process. Detailed instructions follow in each phase.
+### Overview
 
-### Step 1: Prepare Code
-- Build frontend on local machine: `cd FE && npm run build`
-- Result: FE/dist/ folder with production build
+Use this when:
+- ✅ First installation on NAS
+- ✅ Database container deleted/reset
+- ✅ `mysql-data/` folder empty or missing
 
-### Step 2: Connect to NAS
-- Open Nemo file manager and connect via SFTP to NAS
-- Navigate to `/volume1/docker/familiez/`
+**Critical:** Init scripts run **only once** when MySQL finds empty data directory.
 
-### Step 3: Backup Current Version
-- Copy existing `FE-build/` → `FE-build_backup_YYYYMMDD/`
-- Copy existing `MW-build/` → `MW-build_backup_YYYYMMDD/`
+### Quick Steps
 
-### Step 4: Transfer New Code
-- Clear contents of `FE-build/` and `MW-build/` on NAS
-- Copy local `FE/dist/*` → NAS `FE-build/`
-- Copy local `MW/` files → NAS `MW-build/`
-- Copy `docker-compose.prod.yml` → NAS `/volume1/Docker/Familiez/docker-compose.yml`
+1. **Prepare locally** (10 min)
+   - Build FE: `cd FE && npm run build`
+   - Copy MW code ready
+   - Copy SQL init scripts ready
 
-### Step 5: Configure Environment
-- Edit `.env.prod` on NAS
-- Add storage configuration variables
-- Verify `media/` folder exists (create if needed)
+2. **Prepare NAS folders** (5 min)
+   ```
+   /volume1/docker/familiez/
+   ├── FE-build/          (create empty)
+   ├── MW-build/          (create empty)
+   ├── mysql-data/        (create empty - MUST be empty for init)
+   ├── mysql-init/        (create empty)
+   └── BESTANDEN/         (create empty)
+   ```
 
-### Step 6: Database Migration (If Schema Changes)
-- Backup production database
-- Copy SQL migration files to NAS `migrations/` folder
-- Run schema changes via Container Manager terminal or phpMyAdmin
-- Verify tables/columns created successfully
+3. **Transfer files** (10 min)
+   - Local `FE/dist/*` → NAS `FE-build/`
+   - Local `FE/nginx.conf` → NAS `FE-build/nginx.conf`
+   - Local `MW/*` → NAS `MW-build/`
+   - Local `BE/init/*` → NAS `mysql-init/` (numbered SQL files)
+   - Local `docker-compose.prod.yml` → NAS `docker-compose.yml`
+   - Local `.env` → NAS `.env`
 
-### Step 7: Deploy Containers
-- Open Synology Container Manager (web GUI)
-- Click "Start" or "Up" on compose file
-- Container Manager builds and starts all containers automatically
+4. **Deploy** (5 min)
+   - Container Manager → Project → Create
+   - Select `docker-compose.yml`
+   - Build + Start
 
-### Step 8: Test Deployment
-- Test frontend loads (browser)
-- Test API responds
-- Test login with SSO
-- Test file upload and preview
+5. **Verify init completed** (5 min)
+   - Check MySQL logs: "ready for connections"
+   - Check tables exist: `docker exec familiez-mysql mysql -u root -p humans -e "SHOW TABLES;"`
 
-### Step 9: Monitor & Verify
-- Check container logs in Container Manager
-- Verify no errors
-- Confirm all services running
+### Detailed Procedure
 
-**Total Time:** ~15-30 minutes (depending on database migrations)
+See [Detailed Procedures → First-Time Setup](#first-time-setup-detailed)
 
 ---
 
-## DEPLOYMENT PROCESS: GUI + FILE MANAGER ONLY
+## Update Deployment (Existing Database)
 
-### Phase 1: Prepare Updated Code on Local Machine (Nemo File Manager)
+### Overview
 
-#### Step 1.1: Build Frontend for Production
-Open a terminal ONLY for this build step (unavoidable):
+Use this when:
+- ✅ Containers already running on NAS
+- ✅ Database has data (`mysql-data/` populated)
+- ✅ Only code changes (FE/MW)
+
+**Note:** Database schema changes require migration steps (see Troubleshooting).
+
+### Quick Steps
+
+1. **Prepare locally** (5 min)
+   - Build FE: `cd FE && npm run build`
+   - Verify MW changes committed
+
+2. **Backup on NAS** (2 min)
+   - Copy `FE-build` → `FE-build_backup_YYYYMMDD`
+   - Copy `MW-build` → `MW-build_backup_YYYYMMDD`
+
+3. **Transfer updated code** (5 min)
+   - Clear `FE-build/*`
+   - Copy local `FE/dist/*` → NAS `FE-build/`
+   - Copy local `FE/nginx.conf` → NAS `FE-build/nginx.conf`
+   - Clear `MW-build/*`
+   - Copy local `MW/*` → NAS `MW-build/`
+   - Update `docker-compose.yml` if changed
+   - Update `.env` if changed
+
+4. **Redeploy** (3 min)
+   - Container Manager → Project → Stop
+   - Container Manager → Project → Build + Start
+
+5. **Verify** (2 min)
+   - Check FE loads: `https://familiez.dekknet.com`
+   - Check API: `https://api.dekknet.com/docs`
+   - Check logs for errors
+
+**Total Time:** ~15 minutes
+
+### Detailed Procedure
+
+See [Detailed Procedures → Update Deployment](#update-deployment-detailed)
+
+---
+
+## Detailed Procedures
+
+### First-Time Setup (Detailed)
+
+#### 1. Local Preparation
+
+**1.1 Build Frontend**
 ```bash
 cd /home/frans/Documenten/Dev/Familiez/FE
 npm run build
 ```
-This creates the `dist/` folder with optimized production files.
+✅ Creates `FE/dist/` with production bundles
 
-**Result:** FE/dist/ folder ready for deployment
+**1.2 Verify Files Ready**
+- [ ] `FE/dist/` folder exists with assets/
+- [ ] `FE/nginx.conf` file exists
+- [ ] `MW/` folder has main.py, Dockerfile, requirements.txt
+- [ ] `BE/init/` has numbered SQL files (001_*, 002_*, etc.)
+- [ ] `docker-compose.prod.yml` updated with latest changes
+- [ ] `.env` has production credentials
 
-#### Step 1.2: Open Nemo File Manager - TWO Windows
-1. Open **Nemo** file manager (Files application) **TWICE**
-2. Window A: Navigate to `/home/frans/Documenten/Dev/Familiez/`
-3. Window B: Keep empty (for NAS connection in Phase 2)
+#### 2. Connect to NAS
 
-#### Step 1.3: Select Code for Transfer
-In Nemo Window A:
-1. **Prepare for transfer:**
-   - ✔ `MW/` - Middleware code folder (stays on local machine, will copy to NAS)
-   - ✔ `FE/dist/` - Built frontend output (from Step 1.1)
-   - ✔ `BE/init/` - Database initialization scripts
-   - ✔ `docker-compose.prod.yml` - Production config file
+**2.1 Via Nemo File Manager**
+1. Open Nemo → File → Connect to Server
+2. Protocol: SSH (SFTP)
+3. Server: 192.168.1.10, Port: 22
+4. Username: admin (or your user)
+5. Connect
 
-2. **Do NOT transfer:**
-   - ✘ `.env` or any environment files
-   - ✘ `BESTANDEN/` folder - User files stay on NAS in `media/` folder
-   - ✘ `MOB/` - Mobile app (separate deployment)
-   - ✘ `.git/` and `.gitignore`
+**2.2 Navigate to Deployment Folder**
+```
+volume1 → docker → familiez
+```
 
-**Note:** The `BESTANDEN/` folder on dev machine corresponds to `media/` folder on NAS
+#### 3. Create NAS Folder Structure
 
-**Important:** These folders remain on your local machine - you are COPYING them, not moving them
+**3.1 Create Base Folders** (if they don't exist)
+Right-click in familiez folder → New Folder:
+- `FE-build`
+- `MW-build`
+- `mysql-data` (MUST be empty for first init)
+- `mysql-init`
+- `BESTANDEN`
+
+**3.2 Verify Permissions**
+All folders should be writable by docker user (typically uid 1000 or admin).
+
+#### 4. Transfer Files to NAS
+
+**4.1 Frontend**
+- Local: `FE/dist/*` (all contents)
+- Target: NAS `/volume1/docker/familiez/FE-build/`
+- Method: Select all in dist/, Ctrl+C, paste in FE-build/
+
+**4.2 Frontend nginx config**
+- Local: `FE/nginx.conf`
+- Target: NAS `/volume1/docker/familiez/FE-build/nginx.conf`
+
+**4.3 Middleware**
+- Local: `MW/*` (all files including Dockerfile)
+- Target: NAS `/volume1/docker/familiez/MW-build/`
+
+**4.4 Database Init Scripts**
+- Local: `BE/init/*` (all .sql files)
+- Target: NAS `/volume1/docker/familiez/mysql-init/`
+- ⚠️ Ensure numerical order (001, 002, 003, etc.)
+
+**4.5 Docker Compose**
+- Local: `docker-compose.prod.yml`
+- Target: NAS `/volume1/docker/familiez/docker-compose.yml`
+- ⚠️ Rename to `docker-compose.yml` on NAS
+
+**4.6 Environment Variables**
+- Local: `.env` (root folder with production values)
+- Target: NAS `/volume1/docker/familiez/.env`
+
+#### 5. Deploy via Container Manager
+
+**5.1 Open Container Manager**
+- DSM → Container Manager
+
+**5.2 Create Project**
+1. Project tab → Create
+2. Project name: `familiez`
+3. Path: `/volume1/docker/familiez`
+4. Source: Existing compose file
+5. Select: `docker-compose.yml`
+
+**5.3 Build and Start**
+1. Review services (mysql, mw, fe, portainer)
+2. Click "Done" or "Start"
+3. Container Manager will:
+   - Pull base images (mariadb, nginx, python)
+   - Build MW image from Dockerfile
+   - Create volumes
+   - Start containers in order (mysql → mw → fe)
+
+**5.4 Monitor Logs**
+- Click on `familiez-mysql` container
+- View logs
+- Wait for: `[Note] mysqld: ready for connections`
+- Watch for init script execution: `Executing /docker-entrypoint-initdb.d/001_*.sql`
+
+#### 6. Verify Deployment
+
+**6.1 Check All Containers Running**
+Container Manager → Container tab:
+- ✅ familiez-mysql: running
+- ✅ familiez-mw: running
+- ✅ familiez-fe: running
+- ✅ familiez-portainer: running
+
+**6.2 Verify Database Initialized**
+Terminal or Container Manager terminal on mysql container:
+```bash
+docker exec -it familiez-mysql mysql -u root -p
+# Enter DB_ROOT_PASSWORD from .env
+```
+```sql
+USE humans;
+SHOW TABLES;
+-- Should show: persons, families, relationships, etc.
+```
+
+**6.3 Test Frontend**
+Browser: `http://192.168.1.10:18080`
+- ✅ Page loads
+- ✅ No console errors
+- ✅ Login button visible
+
+**6.4 Test API**
+Browser: `http://192.168.1.10:18000/docs`
+- ✅ FastAPI docs load
+- ✅ Endpoints visible
+
+**6.5 Test SSO Login** (if configured)
+- Click login
+- Redirects to Synology SSO
+- After login, redirects back
+- User authenticated
 
 ---
 
-### Phase 2: Connect NAS via SFTP (Nemo File Manager)
+### Update Deployment (Detailed)
 
-#### Step 2.1: Open NAS Connection in Nemo
-1. In Nemo, click **File** → **Connect to Server**
-2. Select **SSH (SFTP)**
-3. Enter NAS details:
-   - **Server Address:** `[NAS_IP_ADDRESS]` (e.g., `192.168.1.10`)
-   - **Username:** Your NAS SSH user (e.g., `admin`)
-   - **Port:** `22` (default)
-   - **Folder:** Leave blank (will go to home)
-4. Click **Connect**
-5. Enter password when prompted
+#### 1. Local Preparation
 
-**Result:** You're now browsing the NAS file system in Nemo (Window B)
+**1.1 Build Frontend**
+```bash
+cd /home/frans/Documenten/Dev/Familiez/FE
+npm run build
+```
 
-#### Step 2.2: Navigate to Production Directory on NAS
-In Nemo Window B:
-1. Navigate to: `volume1` → `docker` → `familiez`
-2. You should see:
-   - `FE-build/` - Old frontend builds
-   - `MW-build/` - Old middleware builds
-   - `docker-compose.prod.yml` - Old config
-   - `.env.prod` - Production credentials
-   - `mysql-data/` - Live database
-   - `media/` - User uploaded files (equivalent to BESTANDEN in dev)
+**1.2 Verify Changes**
+- [ ] FE changes reflected in dist/
+- [ ] MW code changes committed locally
+- [ ] No database schema changes (or plan migration)
 
-**Important:** Leave `mysql-data/` and `media/` untouched!
+#### 2. Backup Current NAS Version
 
-#### Step 2.3: Backup Current Build Folders on NAS
-In Nemo Window B:
-1. Right-click on `FE-build/` → **Copy**
-2. Right-click → **Paste as** → Name it `FE-build_backup_20260306/`
-3. Right-click on `MW-build/` → **Copy**
-4. Right-click → **Paste as** → Name it `MW-build_backup_20260306/`
-5. Wait for backup operations to complete
+**2.1 Via Nemo/SFTP**
+Navigate to `/volume1/docker/familiez/`
 
-**Result:** Backup folders created in /volume1/docker/familiez/
+**2.2 Create Backup Folders**
+- Right-click `FE-build` → Copy
+- Paste as → `FE-build_backup_20260306` (use today's date)
+- Right-click `MW-build` → Copy  
+- Paste as → `MW-build_backup_20260306`
+
+**2.3 Optional: Backup Database**
+```bash
+docker exec familiez-mysql mysqldump -u root -p humans > backup_20260306.sql
+```
+
+#### 3. Stop Containers
+
+**3.1 Via Container Manager**
+- Project tab → familiez
+- Click "Stop"
+- Wait for all containers to stop
+
+#### 4. Update Code on NAS
+
+**4.1 Clear Old Frontend**
+- Navigate to `FE-build/`
+- Select all (Ctrl+A)
+- Delete
+
+**4.2 Copy New Frontend**
+- Local: `FE/dist/*`
+- Target: NAS `FE-build/`
+- Copy nginx.conf too
+
+**4.3 Clear Old Middleware**
+- Navigate to `MW-build/`
+- Select all (Ctrl+A)
+- Delete
+
+**4.4 Copy New Middleware**
+- Local: `MW/*`
+- Target: NAS `MW-build/`
+
+**4.5 Update Config If Changed**
+- Copy `docker-compose.prod.yml` → `docker-compose.yml` (if modified)
+- Copy `.env` (if variables added/changed)
+
+#### 5. Rebuild and Start
+
+**5.1 Via Container Manager**
+- Project tab → familiez
+- Action menu → Build
+- Wait for build to complete
+- Click "Start"
+
+**5.2 Monitor Startup**
+- Watch container logs
+- MW will rebuild (takes ~2 min)
+- Services start in dependency order
+
+#### 6. Verify Update
+
+**6.1 Check Logs**
+- familiez-mw: No errors, "Uvicorn running"
+- familiez-fe: nginx started
+- familiez-mysql: "ready for connections"
+
+**6.2 Test Application**
+- Frontend loads with new changes
+- API functions correctly
+- Database data intact
+- SSO login works
 
 ---
 
-### Phase 3: Transfer Updated Code to NAS (Drag & Drop)
+## Troubleshooting
 
-#### Step 3.1: Clear Old Build Folders on NAS
-In Nemo Window B (NAS):
-1. Navigate to `volume1/docker/familiez/FE-build/`
-2. Select all files inside (Ctrl+A)
-3. Press **Delete** (or drag to trash)
-4. Navigate back to `volume1/docker/familiez/MW-build/`
-5. Select all files inside (Ctrl+A)
-6. Press **Delete**
-7. Wait for deletions to complete
+### Container Fails to Start
 
-**Result:** Old builds removed, space ready for new code
+**Symptom:** Container exits immediately after start
 
-#### Step 3.2: Transfer FE Build to NAS
-1. In Nemo Window A (Local Machine): Navigate to `FE/dist/`
-2. Select ALL files inside `dist/` (Ctrl+A)
-3. **Copy** (Ctrl+C)
-4. Switch to Nemo Window B (NAS): Navigate to `/volume1/docker/familiez/FE-build/`
-5. **Paste** (Ctrl+V) - wait for copy to complete
-6. Verify files appear on NAS
+**Check:**
+```bash
+docker logs familiez-mw
+docker logs familiez-mysql
+```
+
+**Common Causes:**
+- Missing .env variables → Check .env file exists and has all required vars
+- Port already in use → Change port in docker-compose.yml
+- Volume mount path wrong → Verify folders exist on NAS
+
+### Database Init Scripts Not Running
+
+**Symptom:** Tables don't exist after first deployment
+
+**Cause:** `mysql-data/` not empty when container started
+
+**Fix:**
+1. Stop mysql container
+2. Delete contents of `mysql-data/` folder  
+3. Start container again (init scripts will run)
+
+### MW Build Fails
+
+**Symptom:** "Failed to build mw service"
+
+**Check:**
+- Dockerfile exists in MW-build/
+- requirements.txt exists
+- Python base image accessible
+
+**Fix:**
+- Verify MW-build/ has all MW source files
+- Check Container Manager logs for specific error
+
+### Port Conflicts
+
+**Symptom:** "Bind for 0.0.0.0:XXXX failed: port already in use"
+
+**Current Ports:**
+- 3306: MySQL
+- 18000: MW API
+- 18080: FE nginx
+- 9000: Portainer
+
+**Fix:**
+- Check what's using port: `sudo netstat -tlnp | grep :PORT`
+- Stop conflicting service or change port in docker-compose.yml
+
+### Volume Mount Errors
+
+**Symptom:** "path does not exist" or "no such file or directory"
+
+**Fix:**
+- Verify exact folder names on NAS (case-sensitive)
+- Create missing folders
+- Check docker-compose.yml paths match NAS structure
+
+### Database Schema Migrations
+
+**When Needed:**
+- Adding/removing columns
+- Creating new tables
+- Changing constraints
+
+**Procedure:**
+1. Backup database first
+2. Create migration SQL files
+3. Apply manually via mysql CLI or phpMyAdmin
+4. Test thoroughly before proceeding
+
+---
+
+## Quick Reference
+
+### Essential NAS Paths
+
+| Component | NAS Path |
+|-----------|----------|
+| Compose file | `/volume1/docker/familiez/docker-compose.yml` |
+| Environment | `/volume1/docker/familiez/.env` |
+| Frontend | `/volume1/docker/familiez/FE-build/` |
+| Middleware | `/volume1/docker/familiez/MW-build/` |
+| Database data | `/volume1/docker/familiez/mysql-data/` |
+| Init scripts | `/volume1/docker/familiez/mysql-init/` |
+| User files | `/volume1/docker/familiez/BESTANDEN/` |
+
+### Port Mapping
+
+| Service | Host Port | Container Port | External URL |
+|---------|-----------|----------------|--------------|
+| Frontend | 18080 | 80 | https://familiez.dekknet.com |
+| API | 18000 | 8000 | https://api.dekknet.com |
+| MySQL | 3306 | 3306 | Internal only |
+| Portainer | 9000 | 9000 | http://192.168.1.10:9000 |
+
+### Key Commands
+
+**View logs:**
+```bash
+docker logs familiez-mysql
+docker logs familiez-mw
+docker logs familiez-fe
+```
+
+**Restart service:**
+```bash
+docker restart familiez-mw
+```
+
+**Check database:**
+```bash
+docker exec -it familiez-mysql mysql -u root -p humans
+```
+
+**Rebuild MW:**
+```bash
+cd /volume1/docker/familiez
+docker compose build mw
+docker compose up -d
+```
 
 **Result:** New frontend build deployed
 

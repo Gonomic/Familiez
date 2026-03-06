@@ -1,16 +1,18 @@
 services:
   mysql:
     image: mariadb:10.6
-    container_name: familiez-mysql-prod
+    container_name: familiez-mysql
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
       MYSQL_DATABASE: ${DB_NAME}
       MYSQL_USER: ${DB_USER}
       MYSQL_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "3306:3306"
     volumes:
-      - ${MYSQL_DATA_PATH:-/volume1/docker/familiez/mysql-data}:/var/lib/mysql
-      - ${MYSQL_INIT_PATH:-/volume1/docker/familiez/mysql-init}:/docker-entrypoint-initdb.d:ro
+      - ./mysql-data:/var/lib/mysql
+      - ./mysql-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       timeout: 20s
@@ -19,26 +21,20 @@ services:
       - familiez-network
 
   mw:
-    image: familiez-mw:prod
-    build:
-      context: /volume1/docker/familiez/MW-build
-      dockerfile: Dockerfile
-    container_name: familiez-mw-prod
+    build: ./MW-build
+    container_name: familiez-mw
     restart: unless-stopped
-    depends_on:
-      mysql:
-        condition: service_healthy
     ports:
       - "18000:8000"
     environment:
-      DATABASE_URL: ${DATABASE_URL}
-      STORAGE_BASE_PATH: ${STORAGE_BASE_PATH:-/app/storage}  # File storage inside container
+      DATABASE_URL: mysql+pymysql://${DB_USER}:${DB_PASSWORD}@mysql:3306/${DB_NAME}
+      STORAGE_BASE_PATH: ${STORAGE_BASE_PATH:-/app/BESTANDEN}  # File storage inside container
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
-      SYNOLOGY_OIDC_DISCOVERY_URL: ${SYNOLOGY_OIDC_DISCOVERY_URL}
+      SYNOLOGY_OIDC_DISCOVERY_URL: https://sso.dekknet.com/webman/sso/.well-known/openid-configuration
       SYNOLOGY_CLIENT_ID: ${SYNOLOGY_CLIENT_ID}
       SYNOLOGY_CLIENT_SECRET: ${SYNOLOGY_CLIENT_SECRET}
-      SYNOLOGY_OIDC_VERIFY_SSL: ${SYNOLOGY_OIDC_VERIFY_SSL}
-      SYNOLOGY_JWT_LEEWAY: ${SYNOLOGY_JWT_LEEWAY}
+      SYNOLOGY_OIDC_VERIFY_SSL: "false"
+      SYNOLOGY_JWT_LEEWAY: ${SYNOLOGY_JWT_LEEWAY:-120}
       SYNOLOGY_REDIRECT_URI: ${SYNOLOGY_REDIRECT_URI}
       SYNOLOGY_LDAP_URL: ${SYNOLOGY_LDAP_URL}
       SYNOLOGY_LDAP_BIND_DN: ${SYNOLOGY_LDAP_BIND_DN}
@@ -48,25 +44,43 @@ services:
       SYNOLOGY_LDAP_MEMBER_DN_TEMPLATE: ${SYNOLOGY_LDAP_MEMBER_DN_TEMPLATE}
       SYNOLOGY_LDAPTLS_REQCERT: ${SYNOLOGY_LDAPTLS_REQCERT}
       SYNOLOGY_LDAP_TIMEOUT: ${SYNOLOGY_LDAP_TIMEOUT}
-      DEBUG: "0"
+    depends_on:
+      mysql:
+        condition: service_healthy
     volumes:
-      - ${STORAGE_HOST_PATH:-/volume1/docker/familiez/media}:/app/storage
+      - ./MW-build:/app  # Use NAS deploy folder for middleware code
+      - ./BESTANDEN:/app/BESTANDEN  # File storage mount - must exist on NAS at /volume1/docker/familiez/BESTANDEN
     networks:
       - familiez-network
 
   fe:
-    image: familiez-fe:prod
-    build:
-      context: /volume1/docker/familiez/FE-build
-      dockerfile: dockerfile
-    container_name: familiez-fe-prod
+    image: nginx:stable-alpine
+    container_name: familiez-fe
     restart: unless-stopped
-    depends_on:
-      - mw
     ports:
       - "18080:80"
+    depends_on:
+      - mw
+    volumes:
+      - ./FE-build:/usr/share/nginx/html:ro
+      - ./FE-build/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
       - familiez-network
+
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: familiez-portainer
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - familiez-network
+
+volumes:
+  portainer_data:
 
 networks:
   familiez-network:
