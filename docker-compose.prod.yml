@@ -1,0 +1,70 @@
+services:
+  mysql:
+    image: mariadb:10.6
+    container_name: familiez-mysql-prod
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - ${MYSQL_DATA_PATH:-/volume1/docker/familiez/mysql-data}:/var/lib/mysql
+      - ${MYSQL_INIT_PATH:-/volume1/docker/familiez/mysql-init}:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+    networks:
+      - familiez-network
+
+  mw:
+    image: familiez-mw:prod
+    build:
+      context: /volume1/docker/familiez/MW-build
+      dockerfile: Dockerfile
+    container_name: familiez-mw-prod
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "18000:8000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      SYNOLOGY_OIDC_DISCOVERY_URL: ${SYNOLOGY_OIDC_DISCOVERY_URL}
+      SYNOLOGY_CLIENT_ID: ${SYNOLOGY_CLIENT_ID}
+      SYNOLOGY_CLIENT_SECRET: ${SYNOLOGY_CLIENT_SECRET}
+      SYNOLOGY_OIDC_VERIFY_SSL: ${SYNOLOGY_OIDC_VERIFY_SSL}
+      SYNOLOGY_JWT_LEEWAY: ${SYNOLOGY_JWT_LEEWAY}
+      SYNOLOGY_REDIRECT_URI: ${SYNOLOGY_REDIRECT_URI}
+      SYNOLOGY_LDAP_URL: ${SYNOLOGY_LDAP_URL}
+      SYNOLOGY_LDAP_BIND_DN: ${SYNOLOGY_LDAP_BIND_DN}
+      SYNOLOGY_LDAP_BIND_PASSWORD: ${SYNOLOGY_LDAP_BIND_PASSWORD}
+      SYNOLOGY_LDAP_GROUP_ADMIN_DN: ${SYNOLOGY_LDAP_GROUP_ADMIN_DN}
+      SYNOLOGY_LDAP_GROUP_USER_DN: ${SYNOLOGY_LDAP_GROUP_USER_DN}
+      SYNOLOGY_LDAP_MEMBER_DN_TEMPLATE: ${SYNOLOGY_LDAP_MEMBER_DN_TEMPLATE}
+      SYNOLOGY_LDAPTLS_REQCERT: ${SYNOLOGY_LDAPTLS_REQCERT}
+      SYNOLOGY_LDAP_TIMEOUT: ${SYNOLOGY_LDAP_TIMEOUT}
+      DEBUG: "0"
+    networks:
+      - familiez-network
+
+  fe:
+    image: familiez-fe:prod
+    build:
+      context: /volume1/docker/familiez/FE-build
+      dockerfile: dockerfile
+    container_name: familiez-fe-prod
+    restart: unless-stopped
+    depends_on:
+      - mw
+    ports:
+      - "18080:80"
+    networks:
+      - familiez-network
+
+networks:
+  familiez-network:
+    driver: bridge

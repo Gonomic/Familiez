@@ -29,7 +29,8 @@
       "./scripts/prepare-schema.sh": true,
       "./scripts/prepare-init.sh": true,
       "docker compose": true,
-      "./start-dev.sh": true
+      "./start-dev.sh": true,
+      "git checkout": true
     }
   }
 }

@@ -28,6 +28,7 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: mysql+pymysql://${DB_USER}:${DB_PASSWORD}@mysql:3306/${DB_NAME}
+      STORAGE_BASE_PATH: /app/BESTANDEN  # File storage inside container
       ALLOWED_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173,http://192.168.1.89:5173"
       SYNOLOGY_OIDC_DISCOVERY_URL: https://sso.dekknet.com/webman/sso/.well-known/openid-configuration
       SYNOLOGY_CLIENT_ID: ${SYNOLOGY_CLIENT_ID}
@@ -48,6 +49,7 @@ services:
         condition: service_healthy
     volumes:
       - ./MW:/app  # Hot reload in development
+      - ./BESTANDEN:/app/BESTANDEN  # File storage mount
     networks:
       - familiez-network
 

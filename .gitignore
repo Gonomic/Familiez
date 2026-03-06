@@ -2,6 +2,8 @@
 BE/
 FE/
 MW/
+MOB/
+BESTANDEN/
 
 # Environment files - DO NOT VERSION
 .env
