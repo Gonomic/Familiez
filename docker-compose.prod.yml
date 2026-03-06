@@ -32,6 +32,7 @@ services:
       - "18000:8000"
     environment:
       DATABASE_URL: ${DATABASE_URL}
+      STORAGE_BASE_PATH: ${STORAGE_BASE_PATH:-/app/storage}  # File storage inside container
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       SYNOLOGY_OIDC_DISCOVERY_URL: ${SYNOLOGY_OIDC_DISCOVERY_URL}
       SYNOLOGY_CLIENT_ID: ${SYNOLOGY_CLIENT_ID}
@@ -48,6 +49,8 @@ services:
       SYNOLOGY_LDAPTLS_REQCERT: ${SYNOLOGY_LDAPTLS_REQCERT}
       SYNOLOGY_LDAP_TIMEOUT: ${SYNOLOGY_LDAP_TIMEOUT}
       DEBUG: "0"
+    volumes:
+      - ${STORAGE_HOST_PATH:-/volume1/docker/familiez/media}:/app/storage
     networks:
       - familiez-network
 
