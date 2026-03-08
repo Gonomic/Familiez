@@ -29,6 +29,8 @@ services:
     environment:
       DATABASE_URL: mysql+pymysql://${DB_USER}:${DB_PASSWORD}@mysql:3306/${DB_NAME}
       STORAGE_BASE_PATH: ${STORAGE_BASE_PATH:-/app/BESTANDEN}  # File storage inside container
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      USE_SERVER_SESSIONS: ${USE_SERVER_SESSIONS:-true}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       SYNOLOGY_OIDC_DISCOVERY_URL: https://sso.dekknet.com/webman/sso/.well-known/openid-configuration
       SYNOLOGY_CLIENT_ID: ${SYNOLOGY_CLIENT_ID}
