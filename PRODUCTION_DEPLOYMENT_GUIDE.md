@@ -183,6 +183,7 @@ npm run build
 - [ ] `BE/init/` has numbered SQL files (001_*, 002_*, etc.)
 - [ ] `docker-compose.prod.yml` updated with latest changes
 - [ ] `.env` has production credentials
+- [ ] `.env` sets `ENVIRONMENT=production` (disables debug-only endpoint `/auth/session-info`)
 
 #### 2. Connect to NAS
 
