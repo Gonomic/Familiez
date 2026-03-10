@@ -68,6 +68,25 @@ Risico:
 Gebruik onderstaande tekst 1-op-1 als prompt:
 
 """
+
+## Laatste toevoeging (afsluiting 2026-03-08)
+- Alle relevante wijzigingen zijn gepusht naar de centrale repos (`Familiez`, `Familiez-MW`, `Familiez-BE`).
+- DB-versie-informatie is opgenomen via script: `BE/UpdateVersion_2026_03_08_MW_SessionFallback_ProdCompose.sql`.
+- Let op: dit script moet nog op de live database worden uitgevoerd tijdens een volgende deploy-run om de versie ook fysiek in prod DB te registreren.
+- Sessie afgerond op verzoek gebruiker.
+
+## Extra aandachtspunt - compose warning in dev
+- Bij `docker compose stop` in dev verschenen waarschuwingen dat deze variabelen niet gezet waren:
+  - `VITE_SYNOLOGY_DISCOVERY_URL`
+  - `VITE_API_BASE`
+  - `VITE_SYNOLOGY_AUTH_URL`
+- Impact:
+  - Voor `stop` is dit onschuldig.
+  - Voor `up/build` van FE kan dit wel leiden tot verkeerde of lege frontend runtime-config.
+- Actie voor later (alleen indien dev stack weer gebruikt wordt):
+  1. Controleer `.env` in de root van `Familiez` op bovenstaande `VITE_*` variabelen.
+  2. Zet correcte dev-waarden.
+  3. Start dev stack opnieuw en verifieer FE login/API routes.
 Context:
 - Project: Familiez (MW/FE/BE), productie op Synology NAS via Container Manager.
 - Deploymethode: handmatige kopie met Nemo van lokale bestanden naar Synology projectmap; daarna stack rebuild/deploy in Container Manager.
