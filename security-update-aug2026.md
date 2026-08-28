@@ -254,6 +254,192 @@ Gebruik voor iedere wijzigingsgroep deze gegevens:
   resterende moderate advisories accepteren gezien het gebruik van uitsluitend vaste
   interne navigatiepaden. Geen verdere FE-wijziging zonder nieuwe expliciete keuze.
 
+### 2026-08-28 - WG-02 React Router 7 read-only beoordeling
+
+- Status: compatibiliteitsanalyse afgerond; geen Router-, broncode- of Dockerfile-wijzigingen.
+- Repository: FE.
+- Branch: `main`.
+- Huidige versie: React 18.3.1 met `react-router-dom` 6.30.6.
+- Gebruikte Router-API's: `BrowserRouter`, `Routes`, `Route`, `Navigate`, `Link` en
+  `useNavigate`; geen loaders, actions, SSR/hydration of data-router-API's aangetroffen.
+- Router 7.18.2 ondersteunt React en React DOM vanaf 18, maar vereist Node `>=20.0.0`.
+- FE gebruikt in `FE/dockerfile` momenteel `node:18-bullseye` voor de build. Een losse
+  Router 7-update is daarom niet verantwoord; Node 20 moet onderdeel zijn van dezelfde
+  afzonderlijke wijzigingsgroep.
+- Blootstelling: alleen vaste interne navigatiepaden aangetroffen; geen externe of
+  gebruikersgestuurde redirectwaarden. De SSR hydration advisory is niet van toepassing
+  op de huidige statische Vite/nginx-build.
+- Advies: Router 7 niet nu invoeren. Plan later een gecombineerde Node 20 plus Router 7
+  wijziging met browser-, build- en deploymentcontrole, of accepteer de twee moderate
+  advisories voorlopig als beheerst risico.
+- Exacte volgende stap: expliciete keuze maken tussen tijdelijke risicoacceptatie of een
+  aparte Node 20/Router 7-upgrade. Daarna pas MW-audit starten.
+
+### 2026-08-28 - WG-03 MW dependency-audit
+
+- Status: read-only audit afgerond; geen `requirements.txt`- of broncodewijzigingen.
+- Repository: MW.
+- Branch: `feature/nieuwe-wijzigingen-2026-06-28`.
+- Starting commit: `ae890cd`.
+- Working tree: schoon.
+- Python: 3.12.3 in de bestaande lokale venv.
+- Audittool: `pip-audit` tijdelijk in de lokale venv geinstalleerd; niet toegevoegd aan
+  `requirements.txt` en niet in de repository opgenomen.
+- Auditresultaat: 68 bekende kwetsbaarheden in 10 pakketten bij audit van
+  `requirements.txt`.
+- Belangrijkste kwetsbare pakketten en minimale bekende fixes:
+  - `fastapi` 0.104.1 -> 0.109.1 of hoger.
+  - `starlette` 0.27.0 -> 0.47.2 of hoger voor de relevante oudere multipart-issue;
+    nieuwere advisories vragen 1.0.1 tot 1.3.1. FastAPI moet hiermee compatibel worden
+    geupgrade, niet Starlette los.
+  - `python-multipart` 0.0.6 -> minimaal 0.0.31 voor alle in deze audit gevonden fixes.
+  - `cryptography` 41.0.7 -> minimaal 49.0.0 om alle gevonden advisories te dekken.
+  - `PyJWT` 2.8.0 -> minimaal 2.13.0 om alle gevonden advisories te dekken.
+  - `requests` 2.31.0 -> minimaal 2.33.0 om alle gevonden advisories te dekken.
+  - `Pillow` 10.2.0 -> minimaal 12.3.0 om alle gevonden advisories te dekken.
+  - `PyMySQL` 1.1.0 -> 1.1.1 of hoger.
+  - `python-dotenv` 1.0.0 -> 1.2.2 of hoger.
+  - `pytest` 9.0.2 -> 9.0.3 of hoger; dit is test-only.
+- Daadwerkelijk gebruik: MW gebruikt multipart uploads (`UploadFile`/`Form`), Pillow
+  voor afbeeldingsverwerking, PyJWT voor OIDC-tokenvalidatie en Requests voor OIDC.
+- `pip check`: succesvol.
+- Exacte volgende stap: eerst FastAPI/Starlette en `python-multipart` als framework- en
+  uploadgroep compatibel upgraden in een aparte wijzigingsgroep; daarna tests voor auth,
+  sessies en uploads uitvoeren. Overige pakketten pas in aparte kleine groepen upgraden.
+
+### 2026-08-28 - WG-03 MW framework- en multipart-update
+
+- Status: update en validatie afgerond; nog niet gecommit, gepusht of gedeployed.
+- Repository: MW.
+- Branch: `feature/nieuwe-wijzigingen-2026-06-28`.
+- Gewijzigd bestand: `MW/requirements.txt`.
+- Updates: `fastapi` 0.104.1 naar 0.120.4, expliciet `starlette` 0.49.3 toegevoegd,
+  en `python-multipart` 0.0.6 naar 0.0.31.
+- Installatie: geslaagd in de lokale Python 3.12.3-venv.
+- `pip check`: geslaagd.
+- MW-tests: `85 passed`, 15 deprecation warnings.
+- Audit na update: 56 bekende kwetsbaarheden in 8 packages volgens audit van
+  `requirements.txt`. De multipart-advisories zijn verminderd; Starlette bevat nog
+  advisories waarvoor Starlette 1.0.1 tot 1.3.1 als fix wordt gemeld.
+- Open resterende risico's: `cryptography` 41.0.7, PyJWT 2.8.0, Requests 2.31.0,
+  Pillow 10.2.0, PyMySQL 1.1.0 en `python-dotenv` 1.0.0, plus resterende Starlette
+  advisories.
+- Opmerking: een eerste testcommando vanuit de verkeerde gedeelde werkdirectory gaf
+  ten onrechte `no tests ran`; dit is gecorrigeerd door de tests expliciet vanuit MW
+  uit te voeren. Er is geen apt-installatie uitgevoerd.
+- Exacte volgende stap: de overige MW-packages afzonderlijk prioriteren, te beginnen
+  met `cryptography`, PyJWT en Requests; Starlette 1.x apart beoordelen wegens mogelijk
+  frameworkcompatibiliteitsrisico.
+
+### 2026-08-28 - WG-04 MW crypto-, JWT-, HTTP- en database-update
+
+- Status: update en validatie afgerond; nog niet gecommit, gepusht of gedeployed.
+- Repository: MW.
+- Branch: `feature/nieuwe-wijzigingen-2026-06-28`.
+- Gewijzigd bestand: `MW/requirements.txt`.
+- Updates: PyMySQL `1.1.0` naar `1.1.1`, `cryptography` `41.0.7` naar `49.0.0`,
+  PyJWT `2.8.0` naar `2.13.0` en Requests `2.31.0` naar `2.33.0`.
+- Installatie: geslaagd in de lokale Python 3.12.3-venv.
+- `pip check`: geslaagd.
+- MW-tests: `85 passed`, 15 deprecation warnings.
+- Audit na update: 32 bekende kwetsbaarheden in 5 packages volgens audit van
+  `requirements.txt`.
+- Resterend: Starlette `0.49.3`, Pillow `10.2.0`, `python-dotenv` `1.0.0` en pytest
+  `9.0.2`; cryptography heeft nog één advisory met fix vanaf `50.0.0`.
+- Exacte volgende stap: Pillow en `python-dotenv` afzonderlijk beoordelen en upgraden;
+  daarna Starlette 1.x en de resterende frameworkrisico's apart plannen.
+
+### 2026-08-28 - WG-05 MW Pillow- en dotenv-update
+
+- Status: update en validatie afgerond; nog niet gecommit, gepusht of gedeployed.
+- Repository: MW.
+- Branch: `feature/nieuwe-wijzigingen-2026-06-28`.
+- Gewijzigd bestand: `MW/requirements.txt`.
+- Updates: Pillow `10.2.0` naar `12.3.0` en `python-dotenv` `1.0.0` naar `1.2.2`.
+- Installatie: geslaagd in de lokale Python 3.12.3-venv.
+- Compatibility check: bestaande Pillow-aanroepen (`Image.open`, `Image.new`,
+  `thumbnail` en `Image.Resampling.LANCZOS`) importeren en functioneren in de testset.
+- `pip check`: geslaagd.
+- MW-tests: `85 passed`, 15 deprecation warnings.
+- Audit na update: 9 bekende kwetsbaarheden in 3 packages volgens audit van
+  `requirements.txt`.
+- Resterend: Starlette `0.49.3` met advisories waarvoor 1.0.1 tot 1.3.1 wordt gemeld,
+  cryptography `49.0.0` met één advisory waarvoor 50.0.0 wordt gemeld, en pytest
+  `9.0.2` met één test-only advisory waarvoor 9.0.3 wordt gemeld.
+- Exacte volgende stap: pytest als test-only package bijwerken en daarna bepalen of
+  cryptography `50.0.0` compatibel is; Starlette 1.x blijft een afzonderlijke frameworkgroep.
+
+### 2026-08-28 - WG-07 Starlette 1.x-migratie
+
+- Status: frameworkmigratie en validatie afgerond; nog niet gecommit, gepusht of gedeployed.
+- Repository: MW.
+- Branch: `feature/nieuwe-wijzigingen-2026-06-28`.
+- Updates: FastAPI `0.120.4` naar `0.141.1` en Starlette `0.49.3` naar `1.6.0`.
+- Installatie: geslaagd in de lokale Python 3.12.3-venv.
+- `pip check`: geslaagd.
+- MW-tests: `85 passed`, 16 warnings.
+- Security-audit: `pip-audit -r requirements.txt` meldt geen bekende kwetsbaarheden.
+- Compatibility: auth, middleware, uploads, responses, TestClient en overige MW-tests
+  functioneren zonder testfailure.
+- Resterende waarschuwing: Starlette meldt dat gebruik van httpx met `starlette.testclient`
+  deprecated is en adviseert `httpx2`; dit wordt als aparte testtoolinggroep beoordeeld.
+- Exacte volgende stap: de huidige MW-securitywijzigingen reviewen en daarna committen/pushen
+  na expliciete toestemming, of eerst de httpx2-testtooling afzonderlijk onderzoeken.
+
+### 2026-08-28 - WG-08 httpx2 read-only beoordeling
+
+- Status: read-only onderzoek afgerond; geen requirements- of broncodewijzigingen.
+- Repository: MW.
+- Huidige situatie: `httpx` `0.25.2` staat in `requirements.txt`; `httpx2` is niet
+  geinstalleerd.
+- Starlette `1.6.0` importeert bij voorkeur `httpx2` en geeft bij fallback naar `httpx`
+  een deprecation warning. `httpx2` `2.12.0` is beschikbaar en gebruikt `httpcore2`
+  `2.12.0`, `anyio >=4.10`, `truststore >=0.10` en `idna >=3.18`.
+- Gebruik in MW: uitsluitend `test_main.py` en `test_marriage.py` gebruiken
+  `fastapi.testclient.TestClient`; productiecode gebruikt Requests voor uitgaande HTTP.
+- Advies: vervang in een afzonderlijke testtoolinggroep `httpx==0.25.2` door
+  `httpx2==2.12.0`, draai de twee TestClient-testbestanden en daarna de volledige
+  MW-testset. Houd de wijziging test-only en controleer daarna opnieuw `pip check`.
+- Open risico: `httpx2` is een aparte major package-lijn; eerst compatibiliteit testen
+  voordat deze definitief in `requirements.txt` wordt opgenomen.
+- Exacte volgende stap: expliciete toestemming vragen voor de httpx2-testtoolingupdate;
+  daarna pas installeren, testen en het auditresultaat controleren.
+
+### 2026-08-28 - WG-08 httpx2-testtoolingupdate
+
+- Status: update en validatie afgerond; nog niet gecommit, gepusht of gedeployed.
+- Repository: MW.
+- Branch: `feature/nieuwe-wijzigingen-2026-06-28`.
+- Gewijzigd bestand: `MW/requirements.txt`.
+- Update: `httpx` `0.25.2` vervangen door `httpx2` `2.12.0`; de bijbehorende
+  `httpcore2`, `truststore`, AnyIO- en IDNA-dependencies zijn geinstalleerd.
+- Doel: Starlette 1.6.0 gebruikt nu zijn voorkeursclient `httpx2`; de fallback-
+  deprecation warning voor gewoon `httpx` is verdwenen.
+- Gerichte TestClient-tests: `test_main.py` en `test_marriage.py`, `56 passed`.
+- Volledige MW-tests: `85 passed`.
+- `pip check`: geslaagd.
+- Security-audit: `pip-audit -r requirements.txt` meldt geen bekende kwetsbaarheden.
+- Resterende waarschuwing: Starlette meldt een aparte deprecation voor per-request
+  cookies in `test_marriage.py`; dit is geen failure en staat los van httpx2.
+- Exacte volgende stap: de volledige MW-securitywijziging reviewen en daarna committen
+  en pushen na expliciete toestemming. Daarna kan BE worden beoordeeld (`mariadb:latest`).
+
+### 2026-08-28 - WG-06 MW cryptography- en pytest-update
+
+- Status: update en validatie afgerond; nog niet gecommit, gepusht of gedeployed.
+- Repository: MW.
+- Branch: `feature/nieuwe-wijzigingen-2026-06-28`.
+- Gewijzigd bestand: `MW/requirements.txt`.
+- Updates: `cryptography` `49.0.0` naar `50.0.0` en pytest `9.0.2` naar `9.0.3`.
+- Installatie: geslaagd in de lokale Python 3.12.3-venv.
+- `pip check`: geslaagd.
+- MW-tests: `85 passed`, 15 deprecation warnings.
+- Audit na update: 7 bekende kwetsbaarheden in alleen Starlette `0.49.3` volgens audit
+  van `requirements.txt`; cryptography en pytest rapporteren geen advisories meer.
+- Exacte volgende stap: Starlette 1.x-migratie afzonderlijk beoordelen. Dit is de laatste
+  resterende dependencygroep in MW en heeft mogelijk FastAPI-compatibiliteits- en
+  frameworkgedragsrisico's.
+
 ## Hervatten na onderbreking
 
 Lees eerst dit document volledig en controleer daarna:
