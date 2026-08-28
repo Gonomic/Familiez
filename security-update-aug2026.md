@@ -498,7 +498,7 @@ Gebruik voor iedere wijzigingsgroep deze gegevens:
 - `BE/dockerfile` gebruikt het custom `BE/docker-entrypoint.sh` niet meer; de image
   gebruikt het officiële MariaDB-entrypoint.
 - Het ongebruikte tracked bestand `BE/docker-entrypoint.sh` bevat nog hardcoded
-  wachtwoordliteralen `TopSecret01` en `healthcheckpass`, waaronder database-accounts
+  wachtwoordliteralen voor een oude rootcredential en healthcheckcredential, waaronder database-accounts
   en een root-account voor netwerktoegang. Dit is een repository-secret-risico, ook al
   wordt het bestand niet meer in de huidige image gekopieerd.
 - `BE/init/00-remote-access.sql` gebruikt `${MYSQL_ROOT_PASSWORD}` als placeholder,
@@ -506,7 +506,7 @@ Gebruik voor iedere wijzigingsgroep deze gegevens:
   substitueert; dit is geen vervanging voor secretbeheer.
 - Geen verwijzing naar het custom entrypoint gevonden in de actuele projectconfiguratie.
 - Advies: verwijder `BE/docker-entrypoint.sh` uit Git na bevestiging dat er geen
-  handmatige productieprocedure meer van afhankelijk is. Als `TopSecret01` ooit echt
+  handmatige productieprocedure meer van afhankelijk is. Als de oude credential ooit echt
   is gebruikt, roteer die credentials buiten Git en beoordeel Git-history cleanup als
   afzonderlijke actie. Controleer daarna de overige init-SQL op echte secrets.
 - Exacte volgende stap: toestemming vragen voor verwijderen van het ongebruikte custom
@@ -517,7 +517,7 @@ Gebruik voor iedere wijzigingsgroep deze gegevens:
 - Het ongebruikte `BE/docker-entrypoint.sh` is verwijderd uit de working tree; de
   actuele Dockerfile gebruikt het officiële MariaDB-entrypoint.
 - Aanvullende controle vond in `BE/startgenbe.bat` nog een historische hardcoded
-  waarde: `MARIADB_ROOT_PASSWORD=ErgGeheim`, gecombineerd met `mariadb:latest`.
+  rootcredential, gecombineerd met `mariadb:latest`.
 - Dit script lijkt een oude handmatige Windows-ontwikkelstartprocedure. Het is niet
   onderdeel van de huidige Linux/Compose-runtime, maar de waarde moet als gelekt
   worden beschouwd als deze ooit echt is gebruikt; roteer die credential buiten Git.
@@ -536,9 +536,8 @@ Gebruik voor iedere wijzigingsgroep deze gegevens:
 - Verwijderd: `BE/docker-entrypoint.sh` en `BE/startgenbe.bat`.
 - Reden: beide waren oude, niet door de huidige Dockerflow gebruikte scripts; ze
   bevatten hardcoded credentials of verwezen naar `mariadb:latest`.
-- Secret/tag-scan van actuele BE-bestanden: geen gevonden waarden voor `ErgGeheim`,
-  `TopSecret01`, `healthcheckpass`, `mariadb:latest` of hardcoded
-  `MARIADB_ROOT_PASSWORD=`.
+- Secret/tag-scan van actuele BE-bestanden: geen oude hardcoded credentials,
+  `mariadb:latest` of hardcoded `MARIADB_ROOT_PASSWORD=` gevonden.
 - Docker-build na cleanup: geslaagd met `mariadb:10.6` en correcte init-SQL.
 - Open risico: oude Git-commits kunnen de verwijderde credentials nog bevatten;
   history-cleanup en eventuele credentialrotatie blijven afzonderlijke acties.
@@ -572,8 +571,8 @@ Gebruik voor iedere wijzigingsgroep deze gegevens:
   uitgevoerd.
 - De gebruiker heeft bevestigd dat de oude credentials uit de verwijderde BE-scripts
   ooit actief zijn geweest.
-- Betrokken waarden: `TopSecret01`, `healthcheckpass` en `ErgGeheim`. Deze waarden
-  worden vanaf nu als gecompromitteerd beschouwd en mogen niet opnieuw worden gebruikt.
+- Betrokken oude root-, healthcheck- en ontwikkelcredentials worden vanaf nu als
+  gecompromitteerd beschouwd en mogen niet opnieuw worden gebruikt.
 - Prioriteit: roteer eerst de actieve MariaDB-root-, applicatie- en eventuele
   healthcheckcredentials buiten Git. Controleer daarna bestaande deployments,
   configuraties, volumes en logs op gebruik van de oude waarden.
