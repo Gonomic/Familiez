@@ -424,6 +424,128 @@ Gebruik voor iedere wijzigingsgroep deze gegevens:
 - Exacte volgende stap: de volledige MW-securitywijziging reviewen en daarna committen
   en pushen na expliciete toestemming. Daarna kan BE worden beoordeeld (`mariadb:latest`).
 
+### 2026-08-28 - WG-09 BE MariaDB read-only audit
+
+- Status: read-only BE-audit afgerond; geen Dockerfile-, SQL- of composewijzigingen.
+- Repository: BE.
+- Branch: `feature/nieuwe-wijzigingen-2026-06-28`.
+- Working tree: schoon.
+- Productie- en root Compose-configuratie gebruiken al `mariadb:10.6`.
+- `BE/dockerfile` gebruikt nog `FROM mariadb:latest`; deze tag is niet reproduceerbaar
+  en maakt securitypatches en regressies moeilijk aan een specifieke imageversie te koppelen.
+- `BE/dockerfile` bevat daarnaast een vermoedelijke buildblokkade: de `COPY`-regel verwijst
+  naar `StructureDataSprocsSprocsAndFuncs27012020.sql`, terwijl de repositorybestanden
+  `StructureDataSprocsAndFuncs27012020.sql` en `StructureDataSprocsAndFuncs01022020.sql`
+  bevatten.
+- Lokale Docker-image: `mariadb:10.6` aanwezig; `mariadb:latest` niet lokaal aanwezig.
+- Remote manifestmetadata voor beide tags is beschikbaar; inhoudelijke CVE-scan kon niet
+  worden uitgevoerd omdat Trivy en Docker Scout niet beschikbaar zijn.
+- Advies: behandel het vervangen van `mariadb:latest` als een aparte BE-wijziging, kies
+  een expliciete digest of beheerst gepinde MariaDB 10.6-tag, corrigeer de bestandsnaam
+  alleen na bevestiging van de bedoelde init-SQL, en test daarna image-build,
+  initialisatie, databaseverbinding en stored procedures.
+- Exacte volgende stap: eerst de actuele MariaDB 10.6 patchtag/digest en gewenste init-
+  SQL vastleggen; daarna pas Dockerfile wijzigen en een image-scan uitvoeren.
+
+### 2026-08-28 - WG-09 BE Dockerfile-update en buildvalidatie
+
+- Status: Dockerfile-update en lokale image-build afgerond; nog niet gecommit, gepusht
+  of gedeployed.
+- Repository: BE.
+- Branch: `feature/nieuwe-wijzigingen-2026-06-28`.
+- Gewijzigd bestand: `BE/dockerfile`.
+- Updates: `mariadb:latest` naar `mariadb:10.6`, fout gespelde init-SQL-bestandsnaam
+  gecorrigeerd naar `StructureDataSprocsAndFuncs27012020.sql`, initdirectory-aanmaak
+  idempotent gemaakt met `mkdir -p`, en legacy `ENV LANG C.UTF-8` gewijzigd naar
+  `ENV LANG=C.UTF-8`.
+- Build: `docker build -f BE/dockerfile -t familiez-be:security-audit BE` geslaagd.
+- Imagecontrole: image bevat de correcte init-SQL-copylaag en labelversie `10.6`.
+- Eerste buildfout: MariaDB bevat `/docker-entrypoint-initdb.d` al; opgelost met `mkdir -p`.
+- Scan: inhoudelijke CVE-scan niet uitgevoerd; Trivy en Docker Scout zijn niet beschikbaar.
+- Exacte volgende stap: een image-scanner beschikbaar maken of elders uitvoeren, daarna
+  database-initialisatie en stored-procedure-smoketests tegen deze image valideren.
+
+### 2026-08-28 - WG-09 BE image-scan en initvalidatie
+
+- Status: scan en geïsoleerde initvalidatie afgerond; nog niet gecommit, gepusht of gedeployed.
+- Repository: BE.
+- Branch: `feature/nieuwe-wijzigingen-2026-06-28`.
+- Image: lokaal gebouwd als `familiez-be:security-audit` vanaf `mariadb:10.6`;
+  runtime rapporteerde MariaDB `10.6.25-MariaDB-ubu2204`.
+- Trivy: uitgevoerd via tijdelijke `aquasec/trivy:latest`-container met scanner `vuln`,
+  severities CRITICAL/HIGH/MEDIUM en `--ignore-unfixed`.
+- Trivy-resultaat: 1 CRITICAL, 25 HIGH en 135 MEDIUM findings; 118 in Ubuntu 22.04
+  en 43 in de meegeleverde `gosu`-binary. Dit zijn OS-/imagecomponenten, niet de
+  stored-procedures zelf.
+- Runtime-initcheck: geslaagd tot en met databaseinitialisatie; officiële MariaDB-
+  entrypoint start als dedicated `mysql`-gebruiker, voert
+  `StructureDataSprocsAndFuncs27012020.sql` uit en meldt `MariaDB init process done`.
+  De tijdelijke container is door `--rm`/timeout opgeruimd.
+- Opgeloste Dockerfileproblemen tijdens validatie: bestaande initdirectory, foutieve
+  SQL-doelmap, ontbrekende executable-bit, custom root-entrypoint en hardcoded custom
+  entrypointgedrag zijn vervangen of verwijderd door gebruik van het officiële entrypoint.
+- Open risico's: Trivy toont nog vaste OS-/gosu-kwetsbaarheden; `mariadb:10.6` is een
+  tag en nog geen digest-pin. Stored-procedure-smoketest tegen een draaiende database
+  met een echte applicatieverbinding is nog niet uitgevoerd.
+- Exacte volgende stap: review van de volledige BE-Dockerfilediff en keuze tussen
+  digest-pinning of de bestaande 10.6-tag; daarna pas eventuele stored-procedure-
+  smoketest, commit en push na expliciete toestemming.
+
+### 2026-08-28 - WG-10 BE hardcoded-secret onderzoek
+
+- Status: read-only onderzoek afgerond; behalve het securitylog zijn geen nieuwe BE-
+  bestanden gewijzigd.
+- `BE/dockerfile` gebruikt het custom `BE/docker-entrypoint.sh` niet meer; de image
+  gebruikt het officiële MariaDB-entrypoint.
+- Het ongebruikte tracked bestand `BE/docker-entrypoint.sh` bevat nog hardcoded
+  wachtwoordliteralen `TopSecret01` en `healthcheckpass`, waaronder database-accounts
+  en een root-account voor netwerktoegang. Dit is een repository-secret-risico, ook al
+  wordt het bestand niet meer in de huidige image gekopieerd.
+- `BE/init/00-remote-access.sql` gebruikt `${MYSQL_ROOT_PASSWORD}` als placeholder,
+  maar moet alleen via een omgeving worden uitgevoerd die variabelen daadwerkelijk
+  substitueert; dit is geen vervanging voor secretbeheer.
+- Geen verwijzing naar het custom entrypoint gevonden in de actuele projectconfiguratie.
+- Advies: verwijder `BE/docker-entrypoint.sh` uit Git na bevestiging dat er geen
+  handmatige productieprocedure meer van afhankelijk is. Als `TopSecret01` ooit echt
+  is gebruikt, roteer die credentials buiten Git en beoordeel Git-history cleanup als
+  afzonderlijke actie. Controleer daarna de overige init-SQL op echte secrets.
+- Exacte volgende stap: toestemming vragen voor verwijderen van het ongebruikte custom
+  entrypoint; daarna secret-scan van BE-initbestanden en Dockerfilediff afronden.
+
+### 2026-08-28 - WG-10 aanvullende BE-secretbevinding
+
+- Het ongebruikte `BE/docker-entrypoint.sh` is verwijderd uit de working tree; de
+  actuele Dockerfile gebruikt het officiële MariaDB-entrypoint.
+- Aanvullende controle vond in `BE/startgenbe.bat` nog een historische hardcoded
+  waarde: `MARIADB_ROOT_PASSWORD=ErgGeheim`, gecombineerd met `mariadb:latest`.
+- Dit script lijkt een oude handmatige Windows-ontwikkelstartprocedure. Het is niet
+  onderdeel van de huidige Linux/Compose-runtime, maar de waarde moet als gelekt
+  worden beschouwd als deze ooit echt is gebruikt; roteer die credential buiten Git.
+- Advies: verwijder of herschrijf `startgenbe.bat` naar een placeholder-/`.env`-route
+  en vervang `mariadb:latest` door `mariadb:10.6`, maar alleen na bevestiging dat de
+  oude procedure niet meer nodig is.
+- Open risico: oude Git-commits kunnen de waarde nog bevatten; history-cleanup is een
+  afzonderlijke, potentieel verstorende actie.
+- Exacte volgende stap: expliciete keuze vragen voor `startgenbe.bat` verwijderen of
+  veilig herschrijven; daarna de BE-diff opnieuw bouwen, scannen en committen.
+
+### 2026-08-28 - WG-10 BE legacy-secret cleanup
+
+- Status: cleanup en validatie afgerond; nog niet gecommit, gepusht of gedeployed.
+- Repository: BE.
+- Verwijderd: `BE/docker-entrypoint.sh` en `BE/startgenbe.bat`.
+- Reden: beide waren oude, niet door de huidige Dockerflow gebruikte scripts; ze
+  bevatten hardcoded credentials of verwezen naar `mariadb:latest`.
+- Secret/tag-scan van actuele BE-bestanden: geen gevonden waarden voor `ErgGeheim`,
+  `TopSecret01`, `healthcheckpass`, `mariadb:latest` of hardcoded
+  `MARIADB_ROOT_PASSWORD=`.
+- Docker-build na cleanup: geslaagd met `mariadb:10.6` en correcte init-SQL.
+- Open risico: oude Git-commits kunnen de verwijderde credentials nog bevatten;
+  history-cleanup en eventuele credentialrotatie blijven afzonderlijke acties.
+- Exacte volgende stap: volledige BE-diff reviewen, eventueel bestaande echte
+  credentials buiten Git roteren, en daarna BE plus dit securitylog committen/pushen
+  na expliciete toestemming.
+
 ### 2026-08-28 - WG-06 MW cryptography- en pytest-update
 
 - Status: update en validatie afgerond; nog niet gecommit, gepusht of gedeployed.
