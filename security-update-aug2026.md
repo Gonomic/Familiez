@@ -566,6 +566,77 @@ Gebruik voor iedere wijzigingsgroep deze gegevens:
   of eerst een andere ondersteunde MariaDB-patch/major onderzoeken. Daarna kan de
   huidige BE-Dockerfilewijziging worden afgerond.
 
+### 2026-08-28 - WG-11 credentialstatus bevestigd
+
+- Status: security-incidentactie vereist; nog geen credentialrotatie of productieactie
+  uitgevoerd.
+- De gebruiker heeft bevestigd dat de oude credentials uit de verwijderde BE-scripts
+  ooit actief zijn geweest.
+- Betrokken waarden: `TopSecret01`, `healthcheckpass` en `ErgGeheim`. Deze waarden
+  worden vanaf nu als gecompromitteerd beschouwd en mogen niet opnieuw worden gebruikt.
+- Prioriteit: roteer eerst de actieve MariaDB-root-, applicatie- en eventuele
+  healthcheckcredentials buiten Git. Controleer daarna bestaande deployments,
+  configuraties, volumes en logs op gebruik van de oude waarden.
+- Daarna: revoke/verwijder oude databaseaccounts waar mogelijk, voer een gecontroleerde
+  databaseverbindingstest uit en controleer MW/Compose/Synology-configuratie.
+- Git-history cleanup: pas na rotatie beoordelen en plannen; history cleanup alleen
+  uitvoeren met een expliciet plan voor bestaande clones, branches en remote refs.
+- Secrets: nieuwe waarden uitsluitend via secretbeheer of niet-getrackte
+  omgevingsconfiguratie doorgeven; nooit in dit log of in commando-output opnemen.
+- Exacte volgende stap: actieve productie- en ontwikkelomgevingen inventariseren en
+  vastleggen welke accounts met de oude credentials bestaan; daarna afzonderlijke
+  toestemming vragen voor rotatie per omgeving.
+
+### 2026-08-28 - WG-11 lokale en Synology-configuratiecontrole
+
+- Status: configuratiecontrole afgerond; geen credentials getoond, gelogd of gewijzigd.
+- Lokale secretbestanden `.env`, `.env.prod` en `Deploy/synology/deploy.env` zijn op
+  mode `600` gezet.
+- Lokale databasewachtwoorden verschillen van de drie oude waarden en zijn onderling
+  gelijk voor de gecontroleerde applicatie-/productiewaarden.
+- De Synology remote Compose-directory bevat een `.env` met aanwezige
+  `DB_PASSWORD` en `DB_ROOT_PASSWORD`.
+- Remote Compose gebruikt `MYSQL_PASSWORD: ${DB_PASSWORD}` en
+  `MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}`; geen oude waarden of `mariadb:latest`
+  aangetroffen in de gecontroleerde remote Compose.
+- Belangrijk verschil: remote `DB_PASSWORD` matcht niet met de lokale
+  `Deploy/synology/deploy.env` `PROD_DB_PASSWORD` en dus ook niet met de lokale
+  `.env.prod`-applicatiewaarde. De remote configuratie gebruikt dus een andere waarde
+  dan de lokale deploytool verwacht.
+- Gevolg: dit is geen bewijs dat de remote credential onveilig is, maar lokale
+  `sync_db.py`- en deployacties kunnen met de huidige lokale `PROD_DB_PASSWORD`
+  niet betrouwbaar tegen de Synology-database werken.
+- Advies: niet blind een lokaal wachtwoord naar productie overschrijven. Eerst bepalen
+  welke remote credential de actuele is, de lokale deployconfiguratie veilig daarmee
+  synchroniseren of bewust roteren, en daarna een gecontroleerde verbindingstest doen.
+- Open risico: lokale secretbestanden hebben geen Git-status, maar staan wel buiten Git;
+  remote secretbestand en databasegebruikers zijn alleen op aanwezigheid/fingerprint
+  gecontroleerd. Geen credentialwaarden in dit log opnemen.
+- Exacte volgende stap: via een gecontroleerde remote DB-verbinding vaststellen of de
+  remote `DB_PASSWORD` werkelijk werkt voor `HumansService`; daarna pas besluiten over
+  synchronisatie of rotatie.
+
+### 2026-08-28 - WG-11 PROD-credential synchronisatie en DB-check
+
+- Status: lokale deployconfiguratie gesynchroniseerd en read-only DB-check geslaagd;
+  geen productiegegevens of credentials gelogd.
+- Actie 2: actuele remote `DB_PASSWORD` veilig via SSH opgehaald en uitsluitend lokaal
+  als `PROD_DB_PASSWORD` opgeslagen in `Deploy/synology/deploy.env`.
+- Lokale secretbescherming: `Deploy/synology/deploy.env` staat op mode `600`.
+- Actie 3: `sync_db.py --check-only` uitgevoerd met de expliciete MW Python 3.12.3-venv;
+  de ontbrekende/onbruikbare lokale `PYTHON_BIN`-variabele in `deploy.env` is omzeild
+  zonder het bestand inhoudelijk te wijzigen.
+- Databaseverbinding: DEV `127.0.0.1:3306/humans` en PROD `192.168.1.10:3306/humans`
+  bereikbaar met de geconfigureerde databasegebruikers.
+- Resultaat: `[DB] Structure already equal (DEV == PROD)`, exitcode `0`.
+- Productieactie: geen containers gestopt of gestart; geen databasewijziging uitgevoerd.
+- Open punt: `PYTHON_BIN` ontbreekt of is niet bruikbaar in het lokale echte `deploy.env`;
+  de deploydocumentatie/template noemt deze variabele wel. Dit moet later consistent
+  worden gemaakt, maar is geen credentialprobleem.
+- Exacte volgende stap: controleer of de gewijzigde lokale deployconfiguratie en dit
+  log gecommit moeten worden; daarna eventueel alleen de lokale `PYTHON_BIN`-configuratie
+  corrigeren en een volledige deploy-preflight uitvoeren zonder productieactie.
+
 ### 2026-08-28 - WG-09 MariaDB 10.6 versus latest
 
 - Status: read-only vergelijking afgerond; geen repositorywijzigingen.
