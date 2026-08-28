@@ -529,6 +529,27 @@ Gebruik voor iedere wijzigingsgroep deze gegevens:
 - Exacte volgende stap: expliciete keuze vragen voor `startgenbe.bat` verwijderen of
   veilig herschrijven; daarna de BE-diff opnieuw bouwen, scannen en committen.
 
+### 2026-08-28 - WG-12 structurele securityautomatisering afgerond
+
+- Status: alle onderdelen van punt 1 toegevoegd; nog niet gecommit of gepusht.
+- FE: Dependabot voor npm en workflow `.github/workflows/security-audit.yml` met
+  `npm ci --ignore-scripts` en `npm audit --omit=dev --audit-level=high` op pushes,
+  pull requests en wekelijks.
+- MW: Dependabot voor pip en workflow `.github/workflows/security-audit.yml` met
+  installatie van `pip-audit`, audit van `requirements.txt` en de volledige pytest-suite.
+- BE: Dependabot voor Docker en workflow `.github/workflows/security-image.yml` die
+  de BE-image bouwt en met Trivy op CRITICAL/HIGH findings scant.
+- Alle workflows hebben uitsluitend `contents: read`-rechten.
+- YAML-validatie: alle zes nieuwe YAML-bestanden succesvol geparsed met de bestaande
+  YAML-parser. Ruby/actionlint was lokaal niet beschikbaar.
+- Lokale checks: FE productieaudit exit 0 met twee bekende moderate React Router-
+  advisories; MW `pip-audit` meldt geen bekende kwetsbaarheden.
+- Bewuste open punten: React Router 7 en MariaDB digest-pinning zijn niet uitgevoerd;
+  GitHub Actions gebruiken voor Trivy voorlopig `aquasecurity/trivy-action@master`,
+  wat later op een gecontroleerde versie of SHA moet worden vastgezet.
+- Exacte volgende stap: deze securityautomatisering reviewen en daarna committen/pushen
+  na expliciete toestemming. Vervolgens kunnen GitHub Actions de eerste periodieke scans uitvoeren.
+
 ### 2026-08-28 - WG-10 BE legacy-secret cleanup
 
 - Status: cleanup en validatie afgerond; nog niet gecommit, gepusht of gedeployed.
@@ -700,6 +721,24 @@ Gebruik voor iedere wijzigingsgroep deze gegevens:
   bestanden/branches zou wijzigen dan geïnventariseerd.
 - Exacte hervatstap: begin met een read-only inventaris van refs en betrokken commits;
   voer geen history rewrite, force-push of productieactie uit zonder nieuwe toestemming.
+
+### 2026-08-28 - WG-12 structurele securityscans
+
+- Status: securityautomatisering toegevoegd; nog niet gecommit of gepusht.
+- FE: `.github/dependabot.yml` voor npm en `.github/workflows/security-audit.yml`
+  met wekelijkse en eventgedreven `npm audit --omit=dev --audit-level=high`.
+- MW: `.github/dependabot.yml` voor pip en `.github/workflows/security-audit.yml`
+  met `pip-audit -r requirements.txt` en de volledige pytest-suite.
+- BE: `.github/dependabot.yml` voor Docker en `.github/workflows/security-image.yml`
+  die de BE-image bouwt en met Trivy scant op CRITICAL/HIGH findings.
+- Workflowrechten: alle workflows gebruiken alleen `contents: read`.
+- Geen applicatie-, dependency-, Docker- of databasewijzigingen uitgevoerd door de
+  workflows zelf; de scans draaien in GitHub Actions op push, pull request en wekelijks.
+- Opmerking: BE Trivy gebruikt voorlopig `aquasecurity/trivy-action@master`; dit moet
+  bij een security-hardeningreview worden vervangen door een gecontroleerd versienummer
+  of commit-SHA, en Dependabot moet action-updates kunnen beheren.
+- Exacte volgende stap: YAML-validatie en lokale controle van de workflowcommando's;
+  daarna eventueel committen/pushen na expliciete toestemming.
 
 ## Hervatten na onderbreking
 
