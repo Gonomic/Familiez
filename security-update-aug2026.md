@@ -546,6 +546,45 @@ Gebruik voor iedere wijzigingsgroep deze gegevens:
   credentials buiten Git roteren, en daarna BE plus dit securitylog committen/pushen
   na expliciete toestemming.
 
+### 2026-08-28 - WG-09 upstream MariaDB-imagevergelijking
+
+- Status: read-only vergelijking afgerond; geen Dockerfile- of imagewijzigingen.
+- De officiële `mariadb:10.6`-image en de lokaal gebouwde `familiez-be:security-audit`
+  hebben hetzelfde Trivy-profiel: 1 CRITICAL, 25 HIGH en 135 MEDIUM findings bij
+  scan met `--ignore-unfixed`.
+- De findings zitten in upstream-componenten: 118 in Ubuntu 22.04 en 43 in de
+  meegeleverde `gosu`-binary. De eigen BE-laag voegt geen extra softwarepakket toe.
+- Lokale image-digest: `mariadb@sha256:10fb7d1457175b9b8757389f32e429d5b8a7d624bae18975f48751927007e43d`.
+  Een digest-pinning maakt builds reproduceerbaar, maar voorkomt niet dat de huidige
+  digest zelf kwetsbare upstream-pakketten bevat.
+- Advies: pin na keuze van de gewenste MariaDB-patchrelease op een digest en plan
+  periodieke image-refreshes. Een overstap naar een andere MariaDB-major of wachten
+  op upstream Ubuntu/gosu-refresh moet apart worden beoordeeld en getest.
+- Open risico: de huidige officiële image bevat nog vaste OS-/gosu-findings; de
+  Trivy-database kan bovendien toekomstige advisories toevoegen.
+- Exacte volgende stap: kies expliciet tussen digest-pinning van de huidige 10.6-image
+  of eerst een andere ondersteunde MariaDB-patch/major onderzoeken. Daarna kan de
+  huidige BE-Dockerfilewijziging worden afgerond.
+
+### 2026-08-28 - WG-09 MariaDB 10.6 versus latest
+
+- Status: read-only vergelijking afgerond; geen repositorywijzigingen.
+- `mariadb:10.6`: MariaDB `10.6.25` op Ubuntu `22.04`; lokale imagegrootte ongeveer
+  308.7 MB.
+- `mariadb:latest`: MariaDB `12.3.3` op Ubuntu `24.04`; lokale imagegrootte ongeveer
+  333.8 MB, dus ongeveer 25.1 MB (8.1%) groter dan 10.6.
+- Trivy met dezelfde instellingen (`CRITICAL,HIGH,MEDIUM`, `--ignore-unfixed`):
+  - 10.6: 1 CRITICAL, 25 HIGH, 135 MEDIUM.
+  - latest: 1 CRITICAL, 21 HIGH, 63 MEDIUM.
+- De resterende CRITICAL zit in de gedeelde `gosu`-component; `latest` is dus niet
+  volledig vrij van securitybevindingen.
+- Compatibiliteitsrisico: `latest` is een sprong van MariaDB 10.6 naar 12.3 en de
+  onderliggende Ubuntu 22.04 naar 24.04. Daarnaast verandert de tag in de tijd.
+- Advies: gebruik niet rechtstreeks `mariadb:latest`. Onderzoek eventueel MariaDB
+  10.6 met de nieuwste patch/digest of plan een aparte MariaDB-majorupgrade met
+  databasebackup, schema-/sproc-tests en rollbackplan. Pin de gekozen image daarna
+  op digest.
+
 ### 2026-08-28 - WG-06 MW cryptography- en pytest-update
 
 - Status: update en validatie afgerond; nog niet gecommit, gepusht of gedeployed.
