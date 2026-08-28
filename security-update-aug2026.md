@@ -671,6 +671,36 @@ Gebruik voor iedere wijzigingsgroep deze gegevens:
   resterende dependencygroep in MW en heeft mogelijk FastAPI-compatibiliteits- en
   frameworkgedragsrisico's.
 
+### Uitgesteld plan - Git-history cleanup van oude credentials
+
+- Status: alleen gepland; uitvoering expliciet uitgesteld.
+- Doel: oude credentialwaarden uit bereikbare en relevante Git-history verwijderen,
+  zonder nieuwe secrets in de repository of dit log op te nemen.
+- Repositories: root `Familiez` en `BE`; controleer ook remote refs en eventuele
+  gekoppelde branches voordat history wordt herschreven.
+- Voorbereiding:
+  1. Maak een volledige lokale backup/mirror van root en BE, inclusief alle refs.
+  2. Inventariseer alle branches, tags, remote refs en pull requests die geraakt worden.
+  3. Bevestig dat de actuele configuraties nieuwe credentials gebruiken.
+  4. Roteer of revoke oude actieve credentials eerst; history cleanup vervangt geen rotatie.
+  5. Zoek opnieuw in alle bereikbare en onbereikbare lokale objects en leg alleen
+     aantallen, commit-ID's en paden vast.
+- Uitvoering, later en afzonderlijk goed te keuren:
+  1. Herschrijf de history met een geschikt hulpmiddel zoals `git filter-repo`.
+  2. Controleer de nieuwe refs en scan de resultaatrepositories opnieuw.
+  3. Verwijder of expire oude remote refs volgens GitHub-procedure.
+  4. Force-push alleen na expliciete toestemming en afgestemde onderhoudsperiode.
+- Nazorg:
+  - Laat bestaande clones opnieuw clonen of gecontroleerd synchroniseren.
+  - Controleer alle actieve branches, tags, forks, releases en caches waar relevant.
+  - Voer GitHub secret scanning opnieuw uit.
+  - Controleer database-, deploy- en Synology-logs op gebruik van de oude credentials.
+- Stopcriteria: stop onmiddellijk bij onverwachte refs, actieve afhankelijkheden,
+  ontbrekende backups, onduidelijke credentialstatus of een history-tool die meer
+  bestanden/branches zou wijzigen dan geïnventariseerd.
+- Exacte hervatstap: begin met een read-only inventaris van refs en betrokken commits;
+  voer geen history rewrite, force-push of productieactie uit zonder nieuwe toestemming.
+
 ## Hervatten na onderbreking
 
 Lees eerst dit document volledig en controleer daarna:
