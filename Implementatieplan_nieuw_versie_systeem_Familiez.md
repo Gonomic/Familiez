@@ -887,9 +887,29 @@ Controleren van een positieve en negatieve compatibiliteitscheck van de deploy-g
 
 #### Reviewpunt 17.8: Root-secret- en branchhygiëne
 
-**Status**: Nog niet gestart.
+**Status**: Afgerond met beperkte eigenaar-review op 2026-09-13.
 
 Controleren dat root `.env.prod` en andere secretachtige bestanden niet in de featurebranches of commits terechtkomen. Als `.env.prod` echte credentials bevat, worden geen waarden gelezen of weergegeven; eventuele rotatie wordt afzonderlijk als operationele actie aangeboden.
+
+**Resultaat**:
+
+- Root staat op `main`, lokaal één commit voor op `origin/main` door de gerichte documentatiecommit.
+- Root bevat daarnaast bestaande, afzonderlijke wijzigingen in `.gitignore` en een verwijderd rootbestand; deze zijn niet meegenomen in de documentatiecommit.
+- Root `.env.prod` is niet getrackt, maar wordt momenteel niet door de root-ignore-regels afgedekt. Dit is een concreet openstaand secret-hygiënerisico.
+- Een naam-/tekstscan van tracked historie vond secretachtige patronen in root (5 commits/28 matches), BE (1 commit/3 matches), MW (13 commits/356 matches), FE (0) en Deploy (1 commit/2 matches). Er zijn geen waarden weergegeven; deze matches kunnen deels false positives zijn en vereisen content-veilige handmatige beoordeling.
+- In nested historie werden onder andere `BE/CheckPassword.sql`, `MW/.env.example` en `FE/.env.example` als secretachtige paden gemeld. `.env.example`-bestanden zijn niet automatisch secrets; `CheckPassword.sql` vereist nadere inhoudscontrole zonder waarden bloot te leggen.
+- Er zijn geen secretwaarden gelezen of weergegeven en er is geen credentialrotatie uitgevoerd.
+- De nested repositories zijn niet gewijzigd door dit reviewpunt; de branch-/upstreamstatus is niet als volledige security-pass vrijgegeven zolang de genoemde matches niet zijn beoordeeld.
+- Geen NAS-, productie-, SSH- of remote-wijziging uitgevoerd.
+
+**Uitgevoerde follow-up**:
+
+- Root `.gitignore` aangevuld met een expliciete `.env.prod`-regel; `git check-ignore` bevestigt `.gitignore:13`.
+- `.env.prod` bevat 24 niet-lege configuratie-instellingen en 4 secretachtige sleuteltypen. De waarden zijn niet gelezen of weergegeven; rotatie is niet uitgevoerd.
+- `BE/CheckPassword.sql` bevat na commentaar- en stringverwijdering geen gedetecteerde secret-literals. Een beperkte eigenaar-review blijft verstandig omdat het bestand password-gerelateerde applicatielogica bevat.
+- De historische secretachtige matches zijn geclassificeerd als context-/logicamatches in code, documentatie, voorbeelden en configuratie; er is geen bevestigde gelekte waarde vastgesteld.
+- Feature-diffs van BE, MW, FE en Deploy bevatten geen secretachtige bestandspaden.
+- Resterend aandachtspunt: eigenaar bevestigt later afzonderlijk de inhoudelijke bedoeling van `BE/CheckPassword.sql` en de historische contextmatches; dit blokkeert de lokale branch-/ignorecontrole niet.
 
 **Opbrengst**: expliciete goedkeuring voor samenvoegen en uitrollen.
 

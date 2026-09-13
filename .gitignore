@@ -3,16 +3,21 @@ BE/
 FE/
 MW/
 MOB/
+Veilig/
 BESTANDEN/
 
 # Environment files - DO NOT VERSION
 .env
 .env.local
 .env.*.local
+.env.prod
 
 # Secrets files
 secrets*.md
 /LDAP Query
+
+# Local checklists and documentation
+checklist_login.md
 
 # Python
 __pycache__/
