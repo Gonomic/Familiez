@@ -10,7 +10,7 @@ Werkwijze per stap (verplicht, zoals afgesproken in het ontwerp):
 5. Resultaat in dit bestand loggen (status, datum, opmerkingen).
 6. Pas daarna wordt de volgende stap aangeboden.
 
-Er wordt **geen enkele stap** uitgevoerd zonder expliciete toestemming vooraf. Bestaande FE/MW/BE-functionaliteit wordt niet gewijzigd, behalve nieuwe, geïsoleerde toevoegingen (capabilities-endpoint, Release Dashboard, registry-sproc) en de verwijdering van oude versie-logica in de allerlaatste stap.
+Er wordt **geen enkele stap** uitgevoerd zonder expliciete toestemming vooraf. Afgeronde implementatiehistorie en toekomstige migratie-/deploymentstappen worden strikt gescheiden. Nieuwe wijzigingen worden alleen in de actuele roadmap uitgevoerd en daarna afzonderlijk gelogd.
 
 **Uitvoeringsprincipe (conform ontwerpbesluit 14)**: de kernlogica (stappen 2 t/m 7) wordt gebouwd als losstaande, lokaal aanroepbare scripts (npm-scripts voor FE, Python-CLI voor MW/BE/Familiez-Deploy), onafhankelijk van GitHub Actions. Dit betekent dat het systeem al **lokaal, handmatig bruikbaar** is zodra stap 0 t/m 9 zijn afgerond — GitHub Actions (stap 10/11) is een latere, niet-blokkerende automatiseringslaag die dezelfde scripts aanroept, geen aparte implementatie.
 
@@ -36,10 +36,15 @@ Er wordt **geen enkele stap** uitgevoerd zonder expliciete toestemming vooraf. B
 | 13 | End-to-end validatie van het volledige nieuwe systeem | Afgerond |
 | 14 | Verwijderen oude versie-/release-logica (allerlaatste stap) | Afgerond op 2026-09-12 |
 | 15 | Database-backed component- en stackmanifesten | Afgerond op 2026-09-13 |
+| 15a | Expliciete releasekeys en DEV→PROD-promotiecontract | Ontwerpbesluit toegevoegd op 2026-09-13 |
+| 15b | Migratie van interne FunctionID's naar expliciete keys | Ontwerpbesluit toegevoegd op 2026-09-13; implementatie nog niet gestart |
 | 16 | Afrondende documentatie en reviewvoorbereiding | Afgerond op 2026-09-13 |
-| 17 | Gezamenlijke code-review van de featurebranches | Nog niet gestart |
-| 18 | Pull requests en gecontroleerde mergevolgorde | Nog niet gestart |
-| 19 | Gecontroleerde productie-uitrol | Nog niet gestart |
+| 17 | Gezamenlijke code-review van de featurebranches | Afgerond met openstaande 17.6-reminder op 2026-09-13 |
+| 18 | DEV-only migratie naar expliciete keys (`FunctionID` verwijderen) | Nog niet gestart |
+| 19 | DEV-release bundle en DEV-validatie | Nog niet gestart |
+| 20 | DEV→PROD-promotieontwerp en lokale test | Nog niet gestart |
+| 21 | Productiebackup, deployvoorbereiding en gecontroleerde merge | Nog niet gestart |
+| 22 | Gecontroleerde productie-uitrol | Nog niet gestart |
 
 ---
 
@@ -49,38 +54,6 @@ Er wordt **geen enkele stap** uitgevoerd zonder expliciete toestemming vooraf. B
 
 - BE
 - MW
-- FE
-- Deploy
-
-MOB valt buiten scope en krijgt voor deze implementatie geen branch.
-
-**Waarom**: de oorspronkelijke branches blijven onaangetast tijdens de volledige implementatie. Wijzigingen kunnen per repository afzonderlijk worden getest, beoordeeld, teruggedraaid en later gecontroleerd via een pull request worden samengevoegd.
-
-**Uitvoering**:
-
-1. Per repository controleren of de huidige werkboom geen onbedoelde niet-gecommitte wijzigingen bevat.
-2. De featurebranch aanmaken vanaf de actuele oorspronkelijke branch.
-3. In alle vier repositories dezelfde branchnaam gebruiken; de branches blijven technisch onafhankelijk.
-4. Tijdens de uitvoering kleine, logisch afgebakende commits per implementatiestap maken.
-5. Na succesvolle validatie de wijzigingen per repository via een pull request terug samenvoegen met de oorspronkelijke branch.
-
-**Voorgestelde mergevolgorde**:
-
-1. BE: Function Registry-schema en registry-sprocs.
-2. MW: scanner en capabilities-endpoint.
-3. FE: scanner en Release Dashboard.
-4. Deploy: stack-manifest, compatibiliteitscontrole en deploy-gate.
-
-**Opbrengst**: vier veilige werkbranches met een bekende gezamenlijke startbasis, zonder wijzigingen aan de oorspronkelijke branches.
-
-**Bestanden**: geen broncodebestanden; uitsluitend Git-branchbeheer in de repositories.
-
-**Status**: Afgerond op 2026-09-10.
-
-**Uitvoering en resultaat**:
-
-- BE: `master` → `feature/familiez-versioning-system`
-- MW: `main` → `feature/familiez-versioning-system`
 - FE: `main` → `feature/familiez-versioning-system`
 - Deploy: `main` → `feature/familiez-versioning-system`
 - Alle vier repositories hadden vóór de branchaanmaak een schone werkboom.
@@ -680,6 +653,137 @@ Conclusie: elk onderdeel (scanners, bump-engine, manifestgenerator, registry-spr
 - `bash -n` op `BE/scripts/prepare-schema.sh`: geslaagd.
 - NAS, productie en het deployscript zijn niet aangeroepen.
 
+## Stap 15a: Expliciete releasekeys en DEV→PROD-promotiecontract
+
+**Status**: Ontwerpbesluit toegevoegd op 2026-09-13; implementatie nog niet gestart.
+
+### Aanleiding en correctie op eerdere interpretatie
+
+De bestaande DEV-releaseketen registreert en valideert de release-inhoud al. Er wordt geen tweede ontwikkel- of registratiepipeline gebouwd. DEV blijft de enige bron van waarheid voor alle gewenste veranderingen, inclusief toevoegingen, wijzigingen en verwijderingen.
+
+De eerdere formulering van PROD-import als het opnieuw opbouwen van functies, dependencies en manifesten in PROD was te sterk. PROD ontvangt uitsluitend een gevalideerde promotie van de DEV-release. De technische importstappen bestaan alleen om die DEV-state veilig in de PROD-database toe te passen.
+
+### Expliciete stabiele keys
+
+Database-ID's zoals `FunctionID` en `DependencyID` zijn in het gekozen eindmodel geen onderdeel meer van de functionele release-identiteit en worden volledig uitgefaseerd. Ze worden niet tussen DEV en PROD gekopieerd.
+
+De overdraagbare release-identiteiten worden expliciet en deterministisch:
+
+```text
+FunctionKey            FE:getPersonDetails
+DependencyKey          FE:getPersonDetails->MW:get_person_details
+ComponentManifestKey   FE:4.0.1
+StackManifestKey       stack:11
+ReleaseKey             release:20260913_153000
+```
+
+De keys worden door de release tooling bepaald, niet door een database `AUTO_INCREMENT`. Dezelfde key moet in DEV, de release bundle en PROD behouden blijven.
+
+De gewenste gegevensstructuur is conceptueel:
+
+```text
+function_registry
+------------------
+FunctionKey      expliciete stabiele release-identiteit
+Layer
+FunctionName
+Version
+SignatureHash
+Status
+```
+
+```text
+function_dependencies
+---------------------
+DependencyKey
+CallerFunctionKey
+CalleeFunctionKey
+RequiredMinVersion
+```
+
+Foreign keys of equivalente unieke referentieconstraints moeten de expliciete keys bewaken. In het gekozen eindmodel worden `FunctionID`, `CallerFunctionID`, `CalleeFunctionID` en `DependencyID` volledig verwijderd; voor release-export, import en compatibiliteitscontrole zijn uitsluitend expliciete keys leidend.
+
+### Compact besluit
+
+- DEV blijft de bron van waarheid; PROD ontvangt uitsluitend een gevalideerde promotie.
+- Audit blijft environment-local en wordt niet standaard geëxporteerd.
+- De release bundle bevat expliciete keys, checksum en gewenste state; geen database-ID's.
+- PROD importeert via key-gebaseerde registry-/manifest-sprocs en publiceert de stack als laatste.
+- De bestaande scanners, bump-engine, manifestgeneratoren en DEV-orchestrator worden niet opnieuw gebouwd.
+
+Benodigd vóór DEV→PROD-promotie: key-schema en sprocs, key-gebaseerde bundle-export/import, PROD-validatie en tests voor key-determinisme, verwijderingen en idempotentie.
+
+## Stap 15b: Migratie van interne FunctionID's naar expliciete keys
+
+**Status**: Ontwerpbesluit toegevoegd op 2026-09-13; implementatie nog niet gestart.
+
+**Gekozen optie**: optie B. `FunctionID` en alle daarvan afhankelijke database-relaties worden volledig verwijderd uit het eindmodel. Expliciete, deterministische keys worden de enige functionele identiteit van functies, dependencies en auditregels.
+
+### Doelmodel
+
+```text
+function_registry
+------------------
+FunctionKey       expliciete stabiele primaire identiteit
+Layer
+FunctionName
+Version
+SignatureHash
+LastChangedCommit
+LastChangedAt
+Status
+```
+
+```text
+function_dependencies
+---------------------
+DependencyKey
+CallerFunctionKey
+CalleeFunctionKey
+RequiredMinVersion
+```
+
+```text
+function_registry_audit
+-----------------------
+AuditID               technische auditidentiteit
+FunctionKey           expliciete foreign key naar function_registry
+OldVersion
+NewVersion
+BumpReason
+ChangedBy
+ChangedAt
+```
+
+`FunctionKey` is uniek en immutable. De voorgestelde waarde wordt deterministisch opgebouwd uit laag en functienaam, bijvoorbeeld `FE:getPersonDetails`, `MW:get_person_details` en `BE:GetPersonDetails_v2`. `DependencyKey` wordt deterministisch opgebouwd uit caller- en callee-key, bijvoorbeeld `FE:getPersonDetails->MW:get_person_details`.
+
+De overige release-entiteiten blijven hun expliciete keys gebruiken:
+
+```text
+ComponentManifestKey
+StackManifestKey
+ReleaseKey
+```
+
+Alle release bundles, DEV→PROD-promoties, compatibiliteitscontroles en auditverwijzingen gebruiken deze keys. Er is geen fallback naar `FunctionID`.
+
+### Compacte uitvoeringsvolgorde
+
+1. Inventariseer alle ID-gebruikers en leg het keycontract vast.
+2. Voeg keys toe, backfill bestaande DEV-data en voeg unieke constraints/foreign keys toe.
+3. Migreer sprocs, audit, orchestrator, APIs, FE/MW/Deploy-consumers en exports/imports.
+4. Vergelijk oude/nieuwe resultaten en test DEV-herinitialisatie, verwijderingen, idempotentie en key-promotie.
+5. Verwijder pas na expliciete goedkeuring alle ID-foreign keys, kolommen, indexes en parameters.
+6. Valideer fresh-install, bestaande DEV-migratie, capabilities, dashboard en release bundle.
+
+### Scope van de wijzigingen
+
+BE-schema/sprocs/migratie-SQL, MW capabilities/API en tests, FE dashboard/tests, Deploy-orchestrator/export/import/validatie, init-SQL en documentatie.
+
+### Rollbackgrens
+
+De definitieve verwijdering is DEV-only; bij fouten wordt DEV opnieuw geïnitialiseerd vanuit de schema-/initbestanden. Productiebackup en productie-restore zijn pas vereist bij de latere PROD-migratie. Definitieve kolomverwijdering vereist succesvolle DEV-validatie en expliciete goedkeuring.
+
 ---
 
 ## Legacy: oorspronkelijke GitHub Actions-stappen (10/11), niet uitgevoerd
@@ -712,9 +816,9 @@ Conclusie: elk onderdeel (scanners, bump-engine, manifestgenerator, registry-spr
 
 ---
 
-## Vervolg na Stap 15: Review en productie-uitrol
+## Vervolg na Stap 17: Toekomstige DEV-, promotie- en productie-roadmap
 
-Deze vervolgfase valt buiten de implementatiestappen 0 t/m 15 en is bedoeld voor uitvoering na afronding van de featurebranches. Elke vervolgstap wordt afzonderlijk beschreven, ter toestemming aangeboden en daarna gelogd.
+Stap 0 t/m 15 zijn historische implementatiestappen. Stap 16 en 17 zijn afgerond; alleen de reminder bij 17.6 blijft open. De volgende stappen zijn toekomstig en worden afzonderlijk beschreven, ter toestemming aangeboden en daarna gelogd.
 
 ### Stap 16: Afrondende documentatie en reviewvoorbereiding
 
@@ -739,7 +843,7 @@ Deze vervolgfase valt buiten de implementatiestappen 0 t/m 15 en is bedoeld voor
 
 ### Stap 17: Gezamenlijke code-review van de featurebranches
 
-**Status**: In uitvoering; reviewpunten 17.1 t/m 17.8 zijn nog niet gestart.
+**Status**: Afgerond met openstaande 17.6-reminder op 2026-09-13.
 
 **Werkwijze voor de reviewpunten**:
 
@@ -915,38 +1019,60 @@ Controleren dat root `.env.prod` en andere secretachtige bestanden niet in de fe
 
 **Randvoorwaarde**: geen merge naar `main` of `master` voordat deze review is afgerond.
 
-### Stap 18: Pull requests en gecontroleerde mergevolgorde
+### Stap 18: DEV-only migratie naar expliciete keys
 
 **Status**: Nog niet gestart.
 
-**Wat**: pull requests maken of de featurebranches gecontroleerd samenvoegen in deze volgorde:
+**Wat**: optie B uitvoeren in DEV: `FunctionID`, `CallerFunctionID`, `CalleeFunctionID` en `DependencyID` vervangen door expliciete keys, inclusief schema, foreign keys, stored procedures, consumers, tests en backfill.
 
-1. BE: registry-schema, registry-sprocs en oude release-logica.
-2. MW: capabilities-endpoint, lokale validatieroute en verwijdering van het oude release-endpoint.
-3. FE: Release Dashboard en verwijdering van de oude releasepagina/-service.
-4. Deploy: lokale orchestrator, stack-manifest, dependencyregistratie en deploy-gate.
+**Herstel bij fout**: DEV-database opnieuw opbouwen vanuit de initiële schema-/initbestanden; geen productiebackup of productieactie.
 
-**Randvoorwaarde**: elke repository afzonderlijk controleren op tests, branchstatus en secrets vóór merge.
+**Resultaat**: DEV gebruikt uitsluitend expliciete keys en `FunctionID` bestaat niet meer in het eindmodel.
 
-### Stap 19: Gecontroleerde productie-uitrol
+### Stap 19: DEV-release bundle en DEV-validatie
 
 **Status**: Nog niet gestart.
 
-**Wat**: na goedgekeurde merges de nieuwe versie- en releasefunctionaliteit gecontroleerd naar productie brengen:
+**Wat**: de bestaande DEV-releaseorchestrator gebruiken, een key-gebaseerde release bundle maken en DEV volledig valideren.
 
-1. Productiebackup en rollbackmogelijkheid controleren.
-2. `RemoveLegacyReleaseLogic.sql` gecontroleerd uitvoeren op de productie-database.
-3. FE/MW/DB uitrollen met de lokale deployflow.
-4. De deploy-gate en health checks laten slagen.
-5. Het nieuwe Release Dashboard en `/capabilities` controleren.
-6. Oude release-tabellen, oude endpoints en de nieuwe stackstatus verifiëren.
+**Inhoud**: functies, dependencies, componentmanifesten, stackmanifest, expliciete keys, checksum en compatibiliteitsstatus; geen database-ID’s of auditgeschiedenis.
 
-**Belangrijke status**: de lokale Dev-database is opgeschoond, maar productie is nog niet benaderd. De oude release-objecten kunnen daar dus nog aanwezig zijn.
+### Stap 20: DEV→PROD-promotieontwerp en lokale test
+
+**Status**: Nog niet gestart.
+
+**Wat**: release bundle importeren via expliciete keys en bestaande registry-/manifest-sprocs, zonder DEV/PROD-ID-mapping. Eerst testen in een tijdelijke PROD-achtige database; geen productieactie.
+
+### Stap 21: Productiebackup, deployvoorbereiding en gecontroleerde merge
+
+**Status**: Nog niet gestart.
+
+**Wat**: na succesvolle DEV-validatie productiebackup, FE/MW-backup, bundlevalidatie, PR’s en gecontroleerde merges voorbereiden. Geen productie-uitrol in deze stap.
+
+### Stap 22: Gecontroleerde productie-uitrol
+
+**Status**: Nog niet gestart.
+
+**Wat**: na expliciete toestemming de key-gebaseerde DEV-release naar PROD promoten, PROD valideren, FE/MW uitrollen, healthchecks en smoke test uitvoeren. Bij fouten geldt de centrale `Backup/<ReleaseId>/BE|MW|FE`-rollbackprocedure.
 
 **Randvoorwaarden**:
 
 - geen productieactie zonder afzonderlijke expliciete toestemming;
 - geen secrets in Git of command-output;
-- rollback voorbereiden vóór het verwijderen van productieobjecten;
-- na uitrol een functionele smoke test uitvoeren.
+- release bundle, BE/databasebackup en FE/MW-backups moeten gevalideerd en beschikbaar zijn;
+- rollbackbeslissing en restoreprocedure moeten vooraf zijn vastgesteld.
+
+---
+
+## LEGACY-NASLAG — oorspronkelijke GitHub Actions-stappen 10/11
+
+Deze historische sectie staat bewust helemaal onderaan en maakt geen deel uit van de actuele uitvoeringsvolgorde. Op 2026-09-10 is besloten de aansturing van het versiesysteem lokaal te houden zonder GitHub Actions. De lokale orchestrator en lokale deployflow zijn de actuele aanpak.
+
+### Oorspronkelijke Stap 10: GitHub Actions — component-workflows
+
+Per component-repo zouden workflows de lokaal aanroepbare scanners, bump-engine, manifestgeneratie en registry-aanroepen uitvoeren en daarna een `repository_dispatch` naar Familiez-Deploy sturen. Deze optie is niet uitgevoerd.
+
+### Oorspronkelijke Stap 11: GitHub Actions — self-hosted runner en orchestrator
+
+Een self-hosted runner en centrale dispatch-orchestrator zouden interne database-toegang via CI/CD mogelijk maken. Deze optie is niet uitgevoerd; de gekozen aanpak blijft lokaal en handmatig.
 
