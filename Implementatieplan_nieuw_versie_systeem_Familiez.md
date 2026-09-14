@@ -1062,6 +1062,175 @@ Controleren dat root `.env.prod` en andere secretachtige bestanden niet in de fe
 - release bundle, BE/databasebackup en FE/MW-backups moeten gevalideerd en beschikbaar zijn;
 - rollbackbeslissing en restoreprocedure moeten vooraf zijn vastgesteld.
 
+### Uitvoeringslog Stap 18: DEV-only migratie naar expliciete keys
+
+**Status**: Voorbereiding en codewijzigingen uitgevoerd; DEV-databasemigratie geblokkeerd vóór uitvoering op 2026-09-14.
+
+**Goedkeuring**:
+
+- Frans heeft op 2026-09-14 expliciet toestemming gegeven voor de volledige DEV-only migratie, inclusief het uiteindelijk verwijderen van `FunctionID`, `CallerFunctionID`, `CalleeFunctionID` en `DependencyID` uit de DEV-database.
+- NAS, productie en productiegegevens vallen uitdrukkelijk buiten deze toestemming.
+
+**Stap 18.1 — Inventarisatie**:
+
+- Actief gebruik van de oude ID's is gevonden in `BE/CreateFunctionRegistry.sql`, `BE/UpdateFunctionRegistry.sql`, `BE/AddFunctionDependency.sql`, `BE/GetFunctionCapabilities.sql`, `Deploy/versioning/run_local_release.py` en de bijbehorende Deploy-tests.
+- FE en MW hadden geen actieve afhankelijkheid van deze numerieke registry-ID's.
+- De oude IDs waren daarmee zowel een database-identiteit als een intern communicatieformaat tussen BE en Deploy; alleen schemawijziging was onvoldoende.
+
+**Stap 18.2 — Key-besluit**:
+
+- `FunctionKey` is deterministisch: `Layer:FunctionName`, bijvoorbeeld `FE:getPersonDetails` en `BE:GetPersonDetails_v2`.
+- `DependencyKey` is deterministisch: `CallerFunctionKey->CalleeFunctionKey`.
+- Keys zijn ASCII/case-sensitive (`ascii_bin`) en vormen de functionele identiteit tussen DEV, release bundle en later PROD.
+- Database-ID's blijven niet bestaan als fallback in het eindmodel.
+
+**Stap 18.3 — Uitgevoerde codewijzigingen**:
+
+- `BE/CreateFunctionRegistry.sql` gebruikt de key-kolommen als primaire en refererende sleutels.
+- `BE/UpdateFunctionRegistry.sql` maakt en retourneert `FunctionKey` en schrijft auditregels op basis van die key.
+- `BE/AddFunctionDependency.sql` accepteert en retourneert `CallerFunctionKey`, `CalleeFunctionKey` en `DependencyKey`.
+- `BE/GetFunctionCapabilities.sql` publiceert `key`, `callerFunctionKey` en `calleeFunctionKey` in plaats van numerieke ID-velden.
+- `Deploy/versioning/run_local_release.py` zoekt functies en dependencies op keys en geeft key-waarden door aan de databaseprocedure.
+- `Deploy/versioning/test_run_local_release.py` is aangepast aan het key-contract.
+- Nieuw migratiescript toegevoegd: `BE/MigrateFunctionRegistryToKeys.sql`. Dit backfillt keys, vervangt constraints, verwijdert de oude ID-kolommen en herstelt key-gebaseerde foreign keys.
+
+**Stap 18.4 — Codevalidatie**:
+
+- BE-versioningtests: 8 geslaagd.
+- Deploy-versioningtests: 14 geslaagd.
+- `bash -n` voor `BE/scripts/prepare-schema.sh` en `BE/scripts/prepare-init.sh`: geslaagd.
+- Statische controle van het migratiescript: geslaagd; backfill, oude constraint-/kolomverwijdering en key-foreign keys zijn aanwezig.
+- Actieve codezoekactie vond na de wijziging geen oude capability-velden `callerFunctionId`/`calleeFunctionId` en geen zelfstandige oude ID-symbolen in BE, Deploy, MW of FE, buiten gegenereerde manifest-/documentatiecontext.
+
+**Stap 18.5 — DEV-uitvoering en resultaat**:
+
+- Eerste uitvoeringspoging stopte tijdens validatie omdat het resultaat niet overeenkwam met de verwachte key-gebaseerde capabilities. Een latere gezaghebbende controle toonde dat de actieve DEV-database toen nog volledig het oude schema en de oude proceduredefinitie bevatte; er was dus geen aantoonbare schemawijziging door die poging.
+- Tweede, gecontroleerde poging stopte vóór backup en vóór migratie omdat authenticatie als `HumansService` tegen de lokaal draaiende `familiez-mysql`-container faalde.
+- Er is geen `/tmp`-backup aangemaakt, omdat de verplichte database-preflight niet slaagde.
+- `MigrateFunctionRegistryToKeys.sql` is in de tweede poging niet uitgevoerd.
+- De drie gewijzigde procedures zijn niet opnieuw geïnstalleerd.
+- Er zijn geen DEV-databasewijzigingen uitgevoerd of opnieuw geprobeerd na de authenticatiefout.
+- NAS en productie zijn niet benaderd.
+
+**Aanvulling 2026-09-14 na herstel lokale authenticatie**:
+
+- De lokale verbinding is afzonderlijk opnieuw gecontroleerd: de container `familiez-mysql` draait en zowel root als `HumansService` konden een niet-sensitieve query uitvoeren.
+- Er is een backup gemaakt buiten de repository: `/tmp/familiez-step18-b0db637r.sql`, 48.137 bytes. De backup bevat de drie registrytabellen met schema en data; de inhoud is niet in uitvoer weergegeven.
+- De eerste migratie-uitvoering stopte op een DDL-fout vóór het opnieuw installeren van procedures. De fouttekst is door de uitvoeromgeving niet bewaard. Read-only controle toont dat de key-kolommen wel zijn toegevoegd en volledig/backfill-correct zijn, maar dat de oude primary keys, unieke indexen en foreign keys nog actief zijn.
+- De key-backfill is gecontroleerd: 158 unieke `FunctionKey`-waarden, 2 unieke `DependencyKey`-waarden en correcte dependencykey-samenstelling; auditkeys zijn niet-null. De registry bevat 158 rijen, dependencies 2 rijen en audit 309 rijen.
+- Oorzaakcorrectie: het migratiescript is aangepast zodat eerst `UQ_FUNCTION_REGISTRY_KEY` wordt aangemaakt voordat key-gebaseerde foreign keys worden opgebouwd. Dit voorkomt dat MariaDB een foreign key naar een niet-geïndexeerde key afwijst.
+- De statische controle van de nieuwe DDL-volgorde is geslaagd.
+- Een vervolgpoging kon de resterende DDL niet starten omdat de uitvoeromgeving de lokale `DEV_DB_HOST`, `DEV_DB_USER` en `DEV_DB_PASSWORD` niet meekreeg. Er zijn bij deze poging geen bestanden of databaseobjecten gewijzigd.
+
+**Tussenstand**:
+
+- De migratie is inhoudelijk voorbereid en de data-backfill is aanwezig in DEV, maar Stap 18 is nog niet voltooid.
+- De DEV-database bevindt zich in een gedeeltelijke migratiestand: key-kolommen bestaan en zijn gevuld, terwijl de oude ID-kolommen/constraints nog bestaan. De gewijzigde procedures zijn nog niet geïnstalleerd.
+- De resterende uitvoering moet plaatsvinden vanuit een omgeving die de bestaande lokale MW-configuratie daadwerkelijk laadt: backup controleren, resterende DDL uitvoeren, procedures installeren en de volledige eindvalidatie herhalen.
+
+**Open blokkade**:
+
+- De lokale MariaDB-container draait, maar de actuele lokale credentials voor `HumansService` worden niet geaccepteerd. Zonder werkende DEV-authenticatie kan de backup-voorwaarde en daarna de migratie niet veilig worden uitgevoerd.
+- De repositorycode staat gedeeltelijk op het nieuwe key-contract, terwijl de actieve DEV-database nog op het oude contract staat. De applicatie moet daarom niet als volledig gemigreerd beschouwd worden totdat de procedures en database succesvol zijn bijgewerkt.
+
+**Volgende actie na herstel van de blokkade**:
+
+1. Alleen de lokale DEV-credentials corrigeren of de bestaande lokale databasegebruiker herstellen, zonder secrets in output of Git vast te leggen.
+2. Backup maken buiten de repository.
+3. `BE/MigrateFunctionRegistryToKeys.sql` één keer uitvoeren.
+4. De drie gewijzigde procedures installeren.
+5. Keys, constraints, aantallen, idempotentie, capabilities en de lokale orchestrator opnieuw valideren.
+6. Daarna de definitieve resultaten en eventuele resterende risico's in dit plan vastleggen.
+
+**Afronding DEV-uitvoering 2026-09-14**:
+
+- De lokale DEV-databaseverbinding is hervat via `127.0.0.1`, database `humans`; credentials zijn niet weergegeven.
+- De eerder gemaakte backup `/tmp/familiez-step18-b0db637r.sql` is gecontroleerd en behouden als herstelreferentie.
+- De resterende key-migratie is succesvol uitgevoerd. Tijdens de DDL moest rekening worden gehouden met MariaDB `AUTO_INCREMENT`-metadata; dit is lokaal correct afgehandeld.
+- `function_registry` gebruikt nu `FunctionKey` als primaire sleutel; `FunctionID` is verwijderd.
+- `function_dependencies` gebruikt nu `DependencyKey` als primaire sleutel, `CallerFunctionKey` en `CalleeFunctionKey` als referenties; `DependencyID`, `CallerFunctionID` en `CalleeFunctionID` zijn verwijderd.
+- `function_registry_audit` gebruikt nu `FunctionKey` als verwijzing; `FunctionID` is verwijderd. Meerdere auditregels per `FunctionKey` blijven toegestaan en zijn correct als historie behouden.
+- Er zijn drie actieve key-gebaseerde foreign keys aanwezig, allemaal verwijzend naar `function_registry.FunctionKey`.
+- De drie gewijzigde procedures zijn opnieuw geïnstalleerd vanuit de BE-bronbestanden: `UpdateFunctionRegistry`, `AddFunctionDependency` en `GetFunctionCapabilities`.
+
+**Definitieve validatie**:
+
+- `function_registry`: 158 rijen; geen null- of dubbele `FunctionKey`-waarden.
+- `function_dependencies`: 2 rijen; geen null- of dubbele `DependencyKey`-, `CallerFunctionKey`- of `CalleeFunctionKey`-waarden.
+- `function_registry_audit`: 309 rijen; geen null-`FunctionKey`-waarden. De vijf groepen met meerdere auditregels per functie zijn verwacht gedrag.
+- Oude kolommen `FunctionID`, `DependencyID`, `CallerFunctionID` en `CalleeFunctionID` zijn in de drie registrytabellen afwezig.
+- `GetFunctionCapabilities()` gaf geldige JSON terug (`JSON_VALID=1`) met het key-gebaseerde capabilities-contract; volledige JSON is niet in uitvoer getoond.
+- BE-versioningtests: 8 geslaagd.
+- Deploy-versioningtests: 14 geslaagd.
+- Er is geen NAS- of productieverbinding gebruikt.
+
+**Opmerking over uitvoeringsruis**:
+
+- Enkele tussentijdse controles faalden door dotenv-shellparsing, een te strikte routinebloktelling, een boolean-formatteerfout in het validatiescript en een onjuiste PyMySQL `nextset()`-aanroep. Deze fouten hadden geen database-impact; na correctie zijn de routines geïnstalleerd en de inhoudelijke controles geslaagd.
+
+**Stap 18-status**: DEV-only migratie naar expliciete keys afgerond op 2026-09-14. De volgende geplande stap is Stap 19: DEV-release bundle en DEV-validatie. Productiepromotie blijft geblokkeerd totdat Stap 19, 20 en 21 succesvol zijn afgerond en voor Stap 22 afzonderlijke expliciete toestemming is gegeven.
+
+### Uitvoeringslog Stap 19: DEV-release bundle en DEV-validatie
+
+**Status**: Afgerond op 2026-09-14.
+
+**Goedkeuring**:
+
+- Frans heeft op 2026-09-14 met `Akkoord` toestemming gegeven om Stap 19 uit te voeren.
+- De uitvoering is beperkt gebleven tot de lokale DEV-database en lokale release-artifacts. NAS en productie zijn niet benaderd.
+
+**Stap 19.1 — Bundlecontract en besluitvorming**:
+
+- De bestaande lokale orchestrator maakt naast de componentmanifesten, registry en stackmanifest nu ook één expliciete `release-bundle.json`.
+- De bundle bevat `schemaVersion`, `releaseKey`, `generatedAt`, de drie componentmanifesten (`FE`, `MW`, `DB`), de key-gebaseerde registry en het compatibele stackmanifest.
+- De checksum is een canonical SHA-256 over de bundle-inhoud zonder het checksumveld zelf. Hierdoor kan later worden gecontroleerd of de bundle onderweg is gewijzigd.
+- Oude database-ID-velden (`FunctionID`, `DependencyID`, `CallerFunctionID`, `CalleeFunctionID` en de oude JSON-velden `id`, `callerFunctionId`, `calleeFunctionId`) worden recursief geweigerd.
+- Alleen een stackmanifest met `compatibilityCheck: passed` kan in een bundle worden opgenomen.
+- De bundle gebruikt uitsluitend de stabiele keys uit Stap 18; database-ID's en auditgeschiedenis zijn geen onderdeel van de overdraagbare release-identiteit.
+
+**Stap 19.2 — Implementatie**:
+
+- Nieuw bestand: `Deploy/versioning/release_bundle.py`.
+- Nieuwe tests: `Deploy/versioning/test_release_bundle.py`.
+- `Deploy/versioning/run_local_release.py` is uitgebreid met `--bundle-output` en `--release-key` en schrijft de bundle na succesvolle stackgeneratie.
+- De bestaande orchestrator blijft verantwoordelijk voor scanner, bump-engine, manifesten, registry-sync, compatibiliteitscheck en databasepublicatie.
+- De bestaande orchestrator-test is aangepast zodat de stackgenerator-mock een compatibel stackmanifest oplevert.
+
+**Stap 19.3 — Validatie vóór DEV-mutatie**:
+
+- Dry-run succesvol uitgevoerd met tijdelijke artifacts; de DEV-database bleef onaangeraakt.
+- Bundle bevatte alle verplichte top-level velden en de componenten FE, MW en DB.
+- Registry en stackmanifest waren aanwezig en compatibel.
+- Checksumformaat en herberekening waren correct.
+- Recursieve controle vond geen verboden oude ID-velden.
+- Deploy-versioningtests na implementatie: 17 geslaagd.
+- Python syntaxcontrole van de nieuwe en aangepaste modules: geslaagd.
+
+**Stap 19.4 — Echte DEV-run**:
+
+- De bestaande lokale orchestrator is uitgevoerd met `--database`.
+- Bundle: `Deploy/versioning/release-bundle.json`.
+- Registry-artifact: `Deploy/versioning/registry.json`.
+- Stack-artifact: `Deploy/versioning/stack-manifest.json`.
+- De bundle is aangemaakt met drie componenten: DB, FE en MW.
+- Checksumvalidatie is geslaagd met checksum `sha256:d747e8bdded259058998c6cf5158423d0b550366f80a568b3a065cead6d23c85`.
+- De bundle bevat een `releaseKey`; deze is aanwezig en wordt door de bundlevalidatie gecontroleerd.
+- Registrycontrole: key-fields-only, geen oude ID-velden.
+- Stackcompatibiliteit: `passed`.
+- Databasecomponent- en stackmanifesten zijn consistent met de lokale artifacts.
+- Er is precies één actieve stack; dubbele actieve stacks: 0.
+- BE-versioningtests: 8 geslaagd.
+- Deploy-versioningtests: 17 geslaagd.
+- Eindfouten: 0.
+
+**Stap 19.5 — DEV-conclusie**:
+
+- De huidige DEV-state is verpakt in een controleerbare, key-gebaseerde release bundle.
+- De bundle kan als invoer dienen voor de volgende promotiefase, maar is nog niet naar PROD geïmporteerd.
+- Productiepromotie blijft geblokkeerd totdat Stap 20 en Stap 21 zijn uitgevoerd en voor Stap 22 afzonderlijke expliciete toestemming is gegeven.
+
+**Stap 19-status**: afgerond op 2026-09-14. De volgende geplande stap is Stap 20: DEV→PROD-promotieontwerp en lokale test.
+
 ---
 
 ## LEGACY-NASLAG — oorspronkelijke GitHub Actions-stappen 10/11
