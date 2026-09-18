@@ -529,3 +529,67 @@ Productiecommando’s hebben bewust een expliciete bevestigingsvlag:
 De dispatcher implementeert de versioningmigratie niet opnieuw. De eenmalige PROD-migratie is al uitgevoerd. `import` gebruikt de bestaande `import_release_data.py`; `deploy` gebruikt de bestaande `deploy_to_synology.sh`; `rollback` gebruikt `rollback_on_synology.sh`.
 
 De dispatcher is bewust geen vervanging voor review en expliciete substapgoedkeuring. Controleer vóór een productiecommando altijd backup, ReleaseId, bundle, staging en metadata.
+
+### Praktisch gebruik per release
+
+Gebruik de dispatcher vanuit de root van de Familiez-workspace. Maak het script niet aan vanuit `FE/`, `MW/` of `Deploy/`; de paden zijn vanuit de workspace-root bedoeld.
+
+#### 1. Lokale controle
+
+Start hiermee na wijzigingen:
+
+```bash
+cd /home/frans/Documenten/Dev/Familiez
+./Deploy/synology/familiez_release.sh preflight
+```
+
+De preflight wijzigt niets. Bij `validated` zijn de bestaande release-artifacts en bundle contractueel geldig.
+
+#### 2. Nieuwe DEV-release voorbereiden
+
+Maak eerst een lokale dry-run:
+
+```bash
+./Deploy/synology/familiez_release.sh prepare
+```
+
+Daarna draai je de tests:
+
+```bash
+./Deploy/synology/familiez_release.sh test
+```
+
+Pas wanneer tests en bundlecontrole goed zijn, bepaal je de ReleaseId en voer je de backup-/promotiestappen uit volgens de hoofdstukken hierboven.
+
+#### 3. Productie-import en deployment
+
+Deze commando’s zijn productiemutaties. Voer ze alleen uit na afzonderlijke goedkeuring en nadat `Backup/<ReleaseId>/` en `Staging/<ReleaseId>/` zijn gecontroleerd:
+
+```bash
+./Deploy/synology/familiez_release.sh import --confirm-prod
+./Deploy/synology/familiez_release.sh deploy --confirm-prod
+```
+
+`import` vult PROD met de al bestaande versioningstructuur en releasegegevens. Het migreert de versioningtabellen niet opnieuw.
+
+`deploy` gebruikt de bestaande Synology-deployorchestrator. Controleer na afloop de restart, healthchecks en het Release Dashboard.
+
+#### 4. Rollback
+
+Gebruik bij een bevestigde FE/MW-fout het exacte ReleaseId van de release:
+
+```bash
+./Deploy/synology/familiez_release.sh rollback --confirm-prod 20260918_164519
+```
+
+Een database-restore gebeurt niet automatisch. Daarvoor is een aparte operationele bevestiging en restoreprocedure nodig.
+
+#### 5. Hulp en foutafhandeling
+
+Bekijk de beschikbare commando’s met:
+
+```bash
+./Deploy/synology/familiez_release.sh --help
+```
+
+De dispatcher stopt bij een fout. Ga niet meteen opnieuw draaien; noteer eerst de fase, ReleaseId en foutcategorie in het implementatieplan. Controleer daarna of de officiële backup intact is.
