@@ -2119,6 +2119,23 @@ Controleren dat root `.env.prod` en andere secretachtige bestanden niet in de fe
 
 **Conclusie**: de release is functioneel gecontroleerd inclusief Release Dashboard. De volgende stap is release-afronding: wijzigingen reviewen, commits/pushes per repository voorbereiden en het implementatieplan afsluiten.
 
+### Uitvoeringslog release-afronding
+
+**Status**: Release-afronding akkoord op 2026-09-18.
+
+- Het implementatieplan is bijgewerkt met de productiebackup, versioningmigratie, release-data-import, FE/MW-publicatie, restart, healthchecks en handmatige Release Dashboard-smoketest.
+- FE, MW en Deploy zijn functioneel gecontroleerd; de relevante root- en Deploy-wijzigingen zijn gecommit en gepusht.
+- De releasebackup en `release-metadata.json` blijven voorlopig beschikbaar op Synology als rollbackbewijs en herstelmateriaal.
+- De oude `voorgaande_versie`-mappen vallen buiten de nieuwe methodiek en worden later door Frans handmatig verwijderd als afzonderlijke opruimactie.
+- Er wordt geen extra algemene eindscontrole uitgevoerd; de reeds uitgevoerde directe healthchecks en handmatige smoke test gelden als afsluitende validatie.
+- De release wordt hiermee formeel als afgerond beschouwd voor deze uitvoeringsronde.
+
+**Uitleg backupbewaring**:
+
+- De backup is niet alleen een kopie van bestanden, maar het herstelpunt van de volledige release: BE-dump, FE/MW-builds, checksums en metadata.
+- Daarom blijft deze staan totdat duidelijk is dat de nieuwe release stabiel genoeg is en de afgesproken bewaartermijn is verstreken.
+- Verwijderen gebeurt later bewust en afzonderlijk; niet als onderdeel van een normale deploy.
+
 ---
 
 ## LEGACY-NASLAG — oorspronkelijke GitHub Actions-stappen 10/11
