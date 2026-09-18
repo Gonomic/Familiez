@@ -3,7 +3,8 @@
     { "path": "MW" },
     { "path": "FE" },
     { "path": "BE" },
-    { "path": "MOB" }
+    { "path": "MOB" },
+    { "path": "Deploy" }
   ],
   "settings": {
     "sqltools.defaultConnection": "Familiez MySQL (Docker)",
@@ -19,10 +20,9 @@
         "server": "localhost",
         "port": 3306,
         "driver": "MariaDB",
-        "name": "Familiez backend",
-        "group": "Famliez",
+        "name": "HumansService @ humans in container",
         "database": "humans",
-        "username": "root"
+        "username": "HumansService"
       }
     ],
     "chat.tools.terminal.autoApprove": {
@@ -30,7 +30,27 @@
       "./scripts/prepare-init.sh": true,
       "docker compose": true,
       "./start-dev.sh": true,
-      "git checkout": true
+      "git checkout": true,
+      "hostname": true,
+      "awk": true,
+      "mysqldump": true,
+      "nc": true,
+      "docker exec": true,
+      "git add": true,
+      "git commit": true,
+      "git push": true,
+      "npx eslint": true,
+      "git remote": true,
+      "npm run build": true,
+      "printf": true,
+      "command": true,
+      "set": true,
+      "/home/frans/Documenten/Dev/Familiez/MW/.venv/bin/python": true,
+      "npm test": true,
+      "/^python -m pip_audit -r requirements\\.txt -f json$/": {
+        "approve": true,
+        "matchCommandLine": true
+      }
     }
   }
 }

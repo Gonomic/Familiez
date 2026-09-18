@@ -1,0 +1,25 @@
+Stamboom van persoon inzien, menu item maken op canvas om de stamboom van een andere persoon in te zien. Aantal generaties erboven en er onder dan aan te geven. My herritage laat 1,2 3, 4 óf 5 (en dat is dan gelijk alles: 5 en meer zien). 
+
+Partner toevoegen , menu item maken op canvas. Dan verder ongeveer gelijk maken aan de functie kind toevoegen. Alleen actief tonen als er geen actieve partner is, anders deze menu optie greyed out maken.
+
+Broer toevoegen idem-dito.
+
+Zus toevoegen idem-dito.
+
+Zoon toevoegen idem-dito.
+
+Dochter toevoegen idem-dito.
+
+Indien overlijdensdatum niet bekend, maar wel status overleden, dan leeftijd niet tonen.
+
+Tevens menu keuze maken: bvewerken partners (als je partners wilt invoeren voor de huidige partner). 
+
+Onthouden en welke persoon als laatste toegevoegd.
+
+Keuze kunnen  aken of partners wel of niet getoond worden.
+
+Geboorteplaats en overlijdensplaats moeten niet verplicht zijn. Indien status= overleden, maar overlijdensdatum is niet bekend, dan tekst "overleden"
+
+
+
+

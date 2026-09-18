@@ -1231,6 +1231,894 @@ Controleren dat root `.env.prod` en andere secretachtige bestanden niet in de fe
 
 **Stap 19-status**: afgerond op 2026-09-14. De volgende geplande stap is Stap 20: DEV→PROD-promotieontwerp en lokale test.
 
+### Uitvoeringslog Stap 20: DEV→PROD-promotieontwerp en lokale test
+
+**Status**: Afgerond op 2026-09-18.
+
+**Goedkeuring**:
+
+- Frans heeft op 2026-09-18 expliciet toestemming gegeven om Stap 20 uit te voeren.
+- De uitvoering is beperkt gebleven tot lokale code, lokale release-artifacts en tijdelijke lokale MariaDB-containers. Synology, NAS, productie en productiegegevens zijn niet benaderd.
+
+**Stap 20.1 — Key-gebaseerde importmodule**:
+
+- Nieuwe module toegevoegd: `Deploy/versioning/import_release_data.py`.
+- De module valideert vóór iedere database-aanroep het bundle-schema, de componenten FE/MW/DB, de compatibele stack, de checksum en het ontbreken van oude database-ID-velden.
+- De importvolgorde is vastgelegd als: functies, dependencies, componentmanifesten en als laatste het compatibele stackmanifest.
+- Databasewrites lopen uitsluitend via de bestaande `UpdateFunctionRegistry`, `AddFunctionDependency`, `RegisterComponentManifest` en `PublishStackManifest`-procedures; de importer gebruikt geen rechtstreekse tabel-INSERTs.
+- Dependencies worden vanuit de bundle-laag/naamrepresentatie deterministisch vertaald naar `FunctionKey`-waarden; DB wordt daarbij intern naar BE vertaald voor de registryprocedure.
+- Zonder `--database` kan de bundle lokaal worden gevalideerd; met `--database` wordt dezelfde importer tegen een opgegeven databaseverbinding uitgevoerd.
+
+**Stap 20.2 — Tests en initartefacts**:
+
+- Nieuwe gerichte tests toegevoegd: `Deploy/versioning/test_import_release_data.py`.
+- De nieuwe importer- en bundletests: 6 geslaagd.
+- De volledige Deploy-versioningtests na implementatie: 20 geslaagd, 0 failures.
+- Python syntaxcontrole van de importer, bundlemodule en lokale orchestrator: geslaagd.
+- De BE-initartefacts zijn opnieuw gegenereerd met `prepare-schema.sh` en `prepare-init.sh`; de gegenereerde artefacts bevatten `FunctionKey`, `RegisterComponentManifest` en `PublishStackManifest`.
+
+**Stap 20.3 — Tijdelijke lokale promotietest**:
+
+- Een tijdelijke MariaDB 10.6-container met een apart Docker-volume is gebruikt; de bestaande `familiez-mysql`-container en `familiez_mysql_data` zijn niet gebruikt of gewijzigd.
+- De bestaande release bundle is tweemaal geïmporteerd in een tijdelijke PROD-achtige schemaomgeving.
+- Beide imports slaagden.
+- Na de dubbele import waren er 3 componentmanifesten, 1 stackmanifest, 158 registryfuncties en 2 dependencies aanwezig.
+- `FunctionKey` was aanwezig en de oude ID-kolommen waren afwezig.
+- De tijdelijke container, het tijdelijke volume en tijdelijke dump-/logbestanden zijn opgeruimd.
+
+**Validatie en resterend risico**:
+
+- De definitieve tijdelijke controle had een gezonde database, precies 1 actieve stack en precies 1 actieve stack met `CompatibilityStatus = passed`.
+- De actieve stack had het verwachte hoogste buildnummer; de registry- en dependency-aantallen bleven na de dubbele import stabiel.
+- De eerste versie van de eindquery telde ook de legitieme technische kolommen `ComponentManifestID` en `StackManifestID` mee als oude ID-kolommen. Die kolommen horen bij de manifesttabellen en zijn niet de uitgefaseerde `FunctionID`, `DependencyID`, `CallerFunctionID` of `CalleeFunctionID`.
+- De gecorrigeerde interpretatie bevestigt dat de uitgefaseerde functie-/dependency-ID-kolommen afwezig zijn. Dit was een te brede testquery, geen applicatie- of databaseschemafout.
+- Er zijn geen productieacties uitgevoerd.
+
+**Stap 20-status**: afgerond op 2026-09-18. De volgende geplande stap is Stap 21: productiebackup, deployvoorbereiding en gecontroleerde merge.
+
+### Uitvoeringslog Stap 21.1: Productiebackup voorbereiden en uitvoeren
+
+**Status**: Geblokkeerd na preflight op 2026-09-18; geen productieactie uitgevoerd.
+
+**Goedkeuring**:
+
+- Frans heeft op 2026-09-18 expliciet toestemming gegeven om Substap 21.1 uit te voeren.
+
+**Preflightresultaat**:
+
+- De productieconfiguratie en Synology-scripts zijn aanwezig.
+- De bestaande deployscripts hebben syntaxcontrole nodig als aparte technische validatie, maar tonen inhoudelijk al dat `deploy_to_synology.sh` eerst `sync_db.py` uitvoert en pas daarna FE/MW-backups maakt.
+- Er is geen uitgewerkte MariaDB-backupmodule aanwezig die vóór `sync_db.py` een volledige backup maakt naar `Backup/<ReleaseId>/BE/` met checksum en metadata.
+- De bestaande FE/MW-backup gebruikt nog de oudere `voorgaande_versie`-structuur en is niet gekoppeld aan de nieuwe gezamenlijke `ReleaseId`-backupstructuur.
+
+**Besluit**:
+
+- De productiebackup is niet gestart. Dit voorkomt productie-mutaties zonder de afgesproken herstelbackup.
+- Synology, productie-database, FE-build, MW-build en containers zijn niet benaderd of gewijzigd.
+- De volgende noodzakelijke substap is eerst de backuplaag implementeren en lokaal testen: volledige MariaDB-dump, checksum, metadata, centrale `Backup/<ReleaseId>/BE/`-structuur en volgordegate vóór `sync_db.py`.
+
+**Substap 21.1-status**: geblokkeerd. Nieuwe expliciete goedkeuring is nodig voor de implementatie en lokale validatie van de backuplaag voordat opnieuw een productiebackup wordt aangeboden.
+
+### Uitvoeringslog voorbereiding backuplaag vóór Substap 21.1
+
+**Status**: Code-implementatie afgerond; lokale database-integratie geblokkeerd op 2026-09-18.
+
+**Goedkeuring**:
+
+- Frans heeft op 2026-09-18 expliciet toestemming gegeven voor de lokale implementatie en validatie van de backuplaag.
+- Er is geen toestemming gebruikt voor een Synology-, productie- of SSH-actie.
+
+**Uitvoering**:
+
+- Nieuwe module toegevoegd: `Deploy/synology/backup_db.py`.
+- De module maakt een releasegebonden MariaDB-dump met `--single-transaction`, `--routines`, `--triggers` en `--events`.
+- Wachtwoorden worden niet als commandoregelargument doorgegeven, maar uitsluitend via `MYSQL_PWD` aan het dump-proces.
+- De module schrijft `Backup/<ReleaseId>/BE/<database>_<ReleaseId>.sql`, een `.sha256`-bestand en niet-geheime `metadata.json`.
+- De validator controleert bestaan, niet-lege bestandsgrootte, checksum, metadata, database-identificatie en bestandsgrootte.
+- Nieuwe tests toegevoegd: `Deploy/synology/test_backup_db.py`.
+
+**Validatie**:
+
+- Gerichte tests: 3 geslaagd.
+- Python syntaxcontrole: geslaagd.
+- De read-only lokale integratie met `HumansService` werd door MariaDB geweigerd bij `SHOW CREATE FUNCTION`; deze applicatiegebruiker heeft onvoldoende rechten voor een volledige routinebackup.
+- Een read-only root-dumpdiagnose werd daarna door MariaDB als `auth_failed` geweigerd. Er is geen dumpbestand met gegevens gemaakt en geen database gewijzigd.
+- Tijdelijke backupoutput is verwijderd.
+
+**Conclusie en blokkade**:
+
+- De backuplogica en bestandsvalidatie zijn geïmplementeerd en unit-getest.
+- Een echte lokale dumpvalidatie is nog niet bewezen door ontbrekende/onjuiste lokale dumpcredentials en beperkte `HumansService`-rechten.
+- Er worden geen rechten, wachtwoorden of databasegebruikers automatisch gewijzigd.
+- Productiebackup blijft geblokkeerd totdat lokaal met een gecontroleerde dumpaccount een echte dump en validator-run succesvol zijn uitgevoerd.
+
+**Status**: lokale codefase afgerond; database-integratie en daarmee Substap 21.1 blijven geblokkeerd.
+
+### Uitvoeringslog lokale diagnose dumptoegang
+
+**Status**: Afgerond op 2026-09-18.
+
+- `familiez-mysql` bestaat, draait en is healthy.
+- De relevante containerconfiguratiesleutels en lokale `.env`-sleutelnamen zijn gecontroleerd zonder waarden weer te geven.
+- Read-only authenticatiecontrole met de bestaande lokale configuratie slaagde voor zowel `root` als `HumansService`.
+- Er zijn geen wachtwoorden gewijzigd, geen databasegebruikers aangepast en geen databasegegevens gewijzigd.
+- De eerdere `auth_failed`-melding bij de dumpaanroep is hiermee niet langer reproduceerbaar verklaard; de volgende controle moet vaststellen of de volledige routinebackup met de juiste lokale rootverbinding werkt.
+
+**Volgende afzonderlijke substap**: echte lokale dump maken en valideren met de bestaande database, uitsluitend read-only. Hiervoor is opnieuw expliciete toestemming nodig.
+
+### Uitvoeringslog echte lokale dumpvalidatie
+
+**Status**: Niet geslaagd op 2026-09-18; productiebackup blijft geblokkeerd.
+
+- De goedgekeurde read-only dumpvalidatie is uitgevoerd tegen de bestaande lokale `familiez-mysql`-container.
+- De `mariadb-dump`-aanroep met rootconfiguratie faalde met foutcategorie `auth_failed`; er is geen geldig dumpbestand ontstaan.
+- Een tweede poging via de lokale MariaDB-socket zonder wachtwoord werd eveneens door MariaDB geweigerd.
+- Er zijn geen databasewrites, containerwijzigingen, wachtwoordwijzigingen, Synology-acties of productieacties uitgevoerd.
+- Tijdelijke output is verwijderd.
+
+**Conclusie**: de backupmodule is unit-getest, maar een echte lokale database-dump is nog niet bewezen. De volgende noodzakelijke actie is een afzonderlijk goed te keuren herstel van de lokale dumpauthenticatie of het gecontroleerd beschikbaar maken van een dumpaccount met `SHOW VIEW`, `TRIGGER`, `EVENT` en routine-definitie-rechten. Daarna moet dezelfde read-only dumpvalidatie opnieuw worden uitgevoerd.
+
+### Uitvoeringslog herstel lokale dumptoegang
+
+**Status**: Geblokkeerd op 2026-09-18.
+
+- De lokale `familiez-mysql`-container is healthy.
+- De gecontroleerde poging om met de bestaande `HumansService`-credentials de actuele grants op te vragen leverde geen bruikbare authenticatie op.
+- Root-authenticatie werkte niet via de beschikbare containerconfiguratie.
+- Er zijn geen `GRANT`-, `ALTER USER`-, reset-, reinitialisatie- of andere databasewijzigingen uitgevoerd.
+- De container en het bestaande `familiez_mysql_data`-volume zijn ongemoeid gelaten.
+
+**Veiligheidsbesluit**: zonder werkende lokale beheeraccount wordt geen wachtwoord geraden, geen gebruiker aangepast en geen `docker compose down -v` of databaseherinitialisatie uitgevoerd. Dat kan bestaande DEV-data vernietigen.
+
+**Volgende noodzakelijke substap**: Frans moet de lokale DEV-databasebeheerderstoegang herstellen of expliciet toestemming geven voor een afzonderlijk gepland herstel-/reinitialisatiepad met voorafgaande backup. Daarna kan een dumpaccount met de benodigde rechten worden ingericht en de backupvalidatie opnieuw worden uitgevoerd.
+
+### Uitvoeringslog optie 1: veilige lokale credentialconfiguratie
+
+**Status**: Afgerond op 2026-09-18.
+
+- De bestaande Python-env-parser uit `Deploy/versioning/run_local_release.py` is gebruikt; `MW/.env` is niet als shellscript gesourced.
+- De parser laadde de lokale databaseconfiguratie succesvol zonder secretwaarden te tonen.
+- `HumansService` kon lokaal authenticeren.
+- Read-only grantanalyse bevestigde alle benodigde rechten voor een volledige dump: `SELECT`, `SHOW VIEW`, `TRIGGER`, `EVENT`, `LOCK TABLES`, `PROCESS` en routine-definitierechten.
+- `ALL PRIVILEGES` is voor de lokale `HumansService`-account aanwezig.
+- Root blijft niet bruikbaar via de beschikbare rootconfiguratie, maar is voor de dump niet nodig.
+- Er zijn geen databasewijzigingen, wachtwoordwijzigingen, grants, containerwijzigingen of productieacties uitgevoerd.
+
+**Conclusie**: de blokkade zat in de onveilige shell-parsing van `.env`, niet in ontbrekende rechten van `HumansService`. De volgende afzonderlijke substap is de echte read-only dump- en checksumvalidatie met `HumansService` via de veilige parser.
+
+### Uitvoeringslog dumpvalidatie met veilige parser
+
+**Status**: Geblokkeerd op 2026-09-18 door routine-exportrechten.
+
+- De veilige Python-parser is gebruikt; geen `.env`-sourcing via de shell.
+- Een gewone lokale databaseverbinding als `HumansService` werkt.
+- `mariadb-dump` zonder routine-export is niet als volledige releasebackup gebruikt.
+- `mariadb-dump` met `--routines`, `--triggers` en `--events` faalt zowel via socket als TCP met de foutcategorie `insufficient_privileges`.
+- Er is geen geldig dumpbestand gemaakt; tijdelijke output is verwijderd.
+- Er zijn geen databasewrites, grants, wachtwoordwijzigingen, Synology-acties of productieacties uitgevoerd.
+
+**Conclusie**: `HumansService` heeft wel toegang tot de applicatiedatabase, maar niet voldoende systeemrechten voor een volledige routinebackup via `mariadb-dump --routines`. De volgende afzonderlijke substap is het lokaal beschikbaar maken van de minimaal benodigde routine-exportrechten via een werkende beheeraccount, of het expliciet vastleggen van een apart gecontroleerd dumpaccount.
+
+### Uitvoeringslog lokale rechtenherstelactie
+
+**Status**: Afgerond op 2026-09-18.
+
+- Een werkende lokale beheercredential is gevonden in de root/containerconfiguratie; de waarde is niet weergegeven.
+- De bestaande `HumansService`-hostrecords en de aanwezigheid van `mysql.proc` zijn read-only gecontroleerd.
+- De minimale lokale rechtenuitbreiding `SELECT` op `mysql.proc` is uitgevoerd voor de bestaande `HumansService`-hostrecords.
+- Daarna slaagde een read-only `mariadb-dump` met `--single-transaction`, `--routines`, `--triggers`, `--events` en database `humans`.
+- Er zijn geen productie-, Synology-, SSH- of volumeacties uitgevoerd.
+
+**Conclusie**: lokale routine-export is nu aantoonbaar mogelijk. De volgende afzonderlijke substap is de echte `backup_db.py`-run met tijdelijke release-artifacts, checksum en metadata.
+
+### Uitvoeringslog echte `backup_db.py`-validatie
+
+**Status**: Afgerond op 2026-09-18.
+
+- `backup_db.py` is read-only geïntegreerd getest tegen de bestaande lokale `familiez-mysql`-database.
+- De veilige Python-env-parser is gebruikt; wachtwoorden zijn niet als shellscript geladen of weergegeven.
+- De module heeft een volledige MariaDB-dump gemaakt met routines, triggers en events.
+- De release-artefacten zijn aangemaakt onder een tijdelijke `Backup/<ReleaseId>/BE/`-structuur.
+- Bestandsgrootte, SHA-256-checksum, metadata en database-identificatie zijn succesvol gevalideerd.
+- De tijdelijke backupoutput is na de test verwijderd.
+- Er zijn geen databasewrites, Synology-, SSH- of productieacties uitgevoerd.
+
+**Conclusie**: de lokale backuplaag is aantoonbaar werkend. De volgende afzonderlijke substap is de integratie in `deploy_to_synology.sh`, met een verplichte backup-gate vóór `sync_db.py` en vóór FE/MW-vervanging.
+
+### Uitvoeringslog integratie BE-backup en release-import in deployorchestrator
+
+**Status**: Afgerond op 2026-09-18; productieactie niet uitgevoerd.
+
+- `Deploy/synology/deploy_to_synology.sh` maakt nu vóór `sync_db.py` een releasegebonden BE/databasebackup via `backup_db.py`.
+- De backup wordt lokaal gevalideerd en daarna naar `REMOTE_BACKUP_ROOT/<ReleaseId>/BE/` op de NAS gestaged.
+- De release bundle wordt na structurele/routine-sync geïmporteerd via `versioning.import_release_data`.
+- PROD-databasecredentials worden voor de import uitsluitend via de child-processomgeving doorgegeven; het wachtwoord staat niet in de argumentlijst.
+- Nieuwe optionele configuratie is toegevoegd aan `deploy.env.example`: `REMOTE_BACKUP_ROOT`, `RELEASE_BUNDLE_PATH` en `RELEASE_ID_FORMAT`.
+- De bestaande FE/MW-backupstructuur onder `voorgaande_versie` is in deze substap bewust nog niet vervangen door de centrale `Backup/<ReleaseId>/FE|MW`-structuur.
+
+**Validatie**:
+
+- `bash -n Deploy/synology/deploy_to_synology.sh`: geslaagd.
+- Python-syntaxcontrole van `backup_db.py`: geslaagd.
+- Deploy-versioningtests: 20 geslaagd.
+- Backuptests: 3 geslaagd.
+- Statische volgordecontrole: BE-backup vóór `sync_db.py`; release-import ná `sync_db.py`.
+- Het deployscript, SSH, rsync, npm, Synology en productie zijn niet gestart.
+
+**Conclusie**: de databasebackupgate en release-data-import zijn lokaal geïntegreerd en gevalideerd. De volgende afzonderlijke substap is het koppelen van FE- en MW-backups aan dezelfde centrale `Backup/<ReleaseId>/`-structuur en het uitbreiden van rollbackmetadata.
+
+### Uitvoeringslog centrale FE/MW-backupstructuur
+
+**Status**: Afgerond op 2026-09-18; productieactie niet uitgevoerd.
+
+- `deploy_to_synology.sh` gebruikt nu dezelfde `ReleaseId` voor de FE- en MW-backups als voor de BE-backup.
+- FE wordt opgeslagen onder `REMOTE_BACKUP_ROOT/<ReleaseId>/FE/`.
+- MW wordt opgeslagen onder `REMOTE_BACKUP_ROOT/<ReleaseId>/MW/`.
+- Beide componentmappen krijgen niet-geheime `metadata.json` met component, ReleaseId en status.
+- `rollback_on_synology.sh` leest FE- en MW-backups uit de centrale releasebackupstructuur en sluit metadata uit bij het terugzetten.
+- De oude `voorgaande_versie`-paden worden voor deze nieuwe rollbackroute niet meer gebruikt.
+
+**Validatie**:
+
+- `bash -n deploy_to_synology.sh`: geslaagd.
+- `bash -n rollback_on_synology.sh`: geslaagd.
+- Gerichte backup/layouttests: 5 geslaagd, 0 failures.
+- Geen deploy, SSH, rsync, databaseverbinding of productieactie uitgevoerd.
+
+**Conclusie**: BE, FE en MW hebben nu in de code dezelfde releasegebonden backupstructuur. De volgende afzonderlijke substap is rollbackmetadata/DB-restoreplanning en een lokale dry-run van de gecombineerde rollback, zonder Synology of productie.
+
+### Uitvoeringslog rollbackmetadata en DB-restoreplanning
+
+**Status**: Afgerond op 2026-09-18; alleen lokale dry-run uitgevoerd.
+
+- Nieuwe planningmodule toegevoegd: `Deploy/synology/restore_db.py`.
+- De planner valideert de BE-backup, checksum en metadata vóórdat een restoreplan wordt gemaakt.
+- De planner gebruikt standaard geen uitvoeractie; `--execute` wordt bewust geweigerd totdat een afzonderlijk restoremechanisme expliciet is ontworpen en goedgekeurd.
+- Een restoreplan vereist bevestiging, vereist het gecontroleerd stoppen van services en bevat expliciet geen `DROP DATABASE`.
+- Nieuwe tests toegevoegd: `Deploy/synology/test_restore_db.py`.
+
+**Validatie**:
+
+- Backup-, restore- en layouttests: 8 geslaagd, 0 failures.
+- Python- en Bash-syntaxcontroles: geslaagd.
+- Gecombineerde lokale dry-run: BE/FE/MW hadden dezelfde ReleaseId, BE-backupvalidatie slaagde, restorestatus was `planned` en `dropDatabase` was `false`.
+- Geen databaseverbinding, restore, SSH, Synology- of productieactie uitgevoerd.
+
+**Conclusie**: rollbackmetadata en veilige DB-restoreplanning zijn lokaal voorbereid en getest. De volgende afzonderlijke substap is het samenbrengen van release-metadata, checksums en backupstatus in één `release-metadata.json`, gevolgd door een lokale preflight/dry-run van de volledige releaseflow.
+
+### Uitvoeringslog centrale `release-metadata.json`
+
+**Status**: Afgerond op 2026-09-18; alleen lokale dry-run uitgevoerd.
+
+- Nieuwe module toegevoegd: `Deploy/synology/release_metadata.py`.
+- Nieuwe tests toegevoegd: `Deploy/synology/test_release_metadata.py`.
+- De metadata bevat uitsluitend niet-geheime releasegegevens: ReleaseId, stack build, componentversies/source commits, backupstatussen en checksums.
+- De metadata bevat expliciet de compatibiliteitsstatus en rollbackregels.
+- `databaseRestoreRequiresConfirmation` staat op `true`.
+- `dropDatabaseAllowed` staat op `false`.
+- Alleen een stack met `compatibilityCheck: passed` wordt geaccepteerd.
+
+**Validatie**:
+
+- Backup-, restore-, layout- en releasemetadata-tests: 11 geslaagd, 0 failures.
+- Python-syntaxcontrole: geslaagd.
+- Lokale metadata-dry-run: FE/MW/DB aanwezig, rollbackmateriaal beschikbaar, geen secretachtige velden en `dropDatabaseAllowed=false`.
+- Geen database-, SSH-, Synology- of productieactie uitgevoerd.
+
+**Conclusie**: de centrale releasecontext is lokaal aantoonbaar op te bouwen. De volgende afzonderlijke substap is een volledige lokale preflight/dry-run van de releaseflow met backupgate, release-import, centrale metadata en rollbackplanning.
+
+### Uitvoeringslog volledige lokale release-preflight/dry-run
+
+**Status**: Afgerond op 2026-09-18; alleen tijdelijke lokale artifacts en fake clients gebruikt.
+
+- De tijdelijke BE-backup is gemaakt en gevalideerd met checksum en metadata.
+- De bundle-importvolgorde is bevestigd als FE, MW, DB en daarna stackpublicatie.
+- De centrale metadata bevatte FE/MW/DB, dezelfde ReleaseId, stack build `1` en `compatibilityCheck: passed`.
+- De rollbackplanning gaf `planned`, vereiste bevestiging en stond `dropDatabase=false`.
+- Het negatieve checksumscenario stopte met `ValueError` vóór de eerste fake-client-call; er was daarmee geen mutatie vóór de gate.
+- De eerste dry-runpoging faalde door ongeldige tijdelijke testinput; de herhaalde test met correcte byte-output slaagde volledig.
+
+**Validatie**:
+
+- `STATUS=passed`.
+- `import_order=FE, MW, DB, stack`.
+- `metadata=validated`.
+- `rollback_plan=planned`, bevestiging vereist, geen `DROP DATABASE`.
+- `negative_gate=passed`, nul client-aanroepen bij checksumfout.
+- Geen echte database, SSH, rsync, Synology of productie aangeraakt.
+
+**Conclusie**: de volledige releaseflow is lokaal als preflight/dry-run aantoonbaar en stopt vóór mutatie bij een ongeldig backup-/bundle-artifact. De volgende afzonderlijke substap is een review van de deployscriptvolgorde en configuratie voordat een echte productiebackup wordt aangeboden.
+
+### Uitvoeringslog review deployvolgorde en configuratie
+
+**Status**: Review afgerond op 2026-09-18; geen wijzigingen tijdens de review.
+
+**Bevinding**:
+
+- **Medium**: `release_metadata.py` bestaat en is lokaal getest, maar `deploy_to_synology.sh` bouwt of uploadt het centrale `release-metadata.json` nog niet.
+- **Low**: voor de volledige deploy-/rollbackpaden bestaan nog geen uitgebreide geautomatiseerde integratietests; de huidige syntax-, module- en dry-run-tests blijven wel groen.
+
+**Gecontroleerd en akkoord bevonden**:
+
+- BE-backup vóór `sync_db.py` en vóór FE/MW-vervanging.
+- Bundle-import ná structurele/routine-sync.
+- Eén ReleaseId voor BE, FE en MW.
+- Centrale backup- en rollbackpaden.
+- Geen PROD-credentials in argumentlijsten of normale logs.
+- Backupvalidatie vóór database-mutatie.
+- Restoreplanning vereist bevestiging en staat `DROP DATABASE` niet toe.
+- Bestaande `deploy.env` blijft backward-compatible door defaults.
+- Shell- en Python-syntaxcontroles zijn geslaagd.
+
+**Conclusie**: echte productiebackup blijft geblokkeerd totdat de centrale releasemetadata door de deployorchestrator wordt opgebouwd/geüpload en de bijbehorende deploypadtests zijn toegevoegd.
+
+### Uitvoeringslog integratie centrale releasemetadata
+
+**Status**: Afgerond op 2026-09-18; productieactie niet uitgevoerd.
+
+- `deploy_to_synology.sh` bouwt nu na de FE/MW-backup en vóór vervanging het centrale `release-metadata.json` op.
+- Het metadata-artifact gebruikt dezelfde ReleaseId en verwijst naar FE-, MW- en BE-backupmetadata, componentmanifesten en stackmanifest.
+- Het bestand wordt geüpload naar `REMOTE_BACKUP_ROOT/<ReleaseId>/release-metadata.json`.
+- De metadata bevat geen wachtwoorden, tokens of andere geheime configuratie.
+- De backup- en releasegates blijven vóór database- en applicatiemutaties actief.
+- De reviewbevinding over ontbrekende metadata-integratie is hiermee opgelost.
+
+**Validatie**:
+
+- `bash -n deploy_to_synology.sh`: geslaagd.
+- `bash -n rollback_on_synology.sh`: geslaagd.
+- Gerichte backup, restore, layout- en releasemetadata-tests: 11 geslaagd, 0 failures.
+- Geen deploy, SSH, rsync, database, npm of productieactie uitgevoerd.
+
+**Conclusie**: centrale release-metadata is nu onderdeel van de deployflow. De reviewbevindingen zijn lokaal afgehandeld; de volgende stap is opnieuw een expliciete toestemming voor een echte productiebackup-preflight, zonder daarmee al de deployment uit te voeren.
+
+### Uitvoeringslog productiebackup-preflight
+
+**Status**: Preflight afgerond op 2026-09-18; productiebackup niet gestart.
+
+- `deploy.env` bestaat en alle vereiste configuratienamen zijn aanwezig; waarden zijn niet weergegeven.
+- Release bundle, registry, stack-manifest en FE/MW/BE-componentmanifesten bestaan en zijn niet leeg.
+- De geconfigureerde Python-interpreter is uitvoerbaar.
+- `ssh`, `rsync` en `npm` zijn lokaal beschikbaar.
+- Shell- en Python-syntaxcontroles zijn geslaagd.
+- De enige concrete blocker is dat `mariadb-dump` niet op de laptop beschikbaar is.
+- Er is geen SSH-poortcontrole, Synologyverbinding, databaseverbinding, backup, sync, npm-build of deployment uitgevoerd.
+
+**Conclusie**: vóór een echte productiebackup moet de MariaDB-client lokaal beschikbaar worden gemaakt, of de backupopdracht moet gecontroleerd via een daarvoor geschikte remote/container-tool worden uitgevoerd. Dit vereist een afzonderlijke toestemming; productiecontact blijft tot die tijd geblokkeerd.
+
+### Uitvoeringslog Docker-gebaseerde backupclient
+
+**Status**: Afgerond op 2026-09-18; productiebackup nog niet gestart.
+
+- `backup_db.py` ondersteunt nu een samengestelde dumpopdracht via veilige tokenisatie.
+- Als `mariadb-dump` op de laptop ontbreekt, kiest `deploy_to_synology.sh` automatisch een tijdelijke `mariadb:10.6`-clientcontainer.
+- `MYSQL_PWD` wordt als doorgegeven environmentvariabele gebruikt; het wachtwoord staat niet in de commandoregel.
+- De bestaande hostclient blijft bruikbaar wanneer die wel aanwezig is.
+
+**Validatie**:
+
+- `bash -n deploy_to_synology.sh`: geslaagd.
+- Python-syntaxcontrole: geslaagd.
+- Gerichte backup, layout, restore- en metadata-tests: 12 geslaagd, 0 failures.
+- Geen Docker-clientcontainer, database, SSH, Synology of productie gestart.
+
+**Conclusie**: de lokale preflight-blocker `mariadb-dump` ontbreekt is opgelost zonder hostinstallatie. De volgende afzonderlijke substap is de echte productiebackup op Synology, voorafgegaan door de laatste niet-muterende SSH/configuratiecontrole.
+
+### Uitvoeringslog laatste Synology-preflight vóór productiebackup
+
+**Status**: Geblokkeerd op 2026-09-18; geen productiebackup gestart.
+
+- De deployconfiguratie is veilig geparseerd zonder `.env`-sourcing en zonder secretwaarden te tonen.
+- TCP-bereikbaarheid van de Synology faalde.
+- SSH BatchMode-login faalde.
+- Daardoor konden productiecompose, MariaDB-service, backupmap, vrije opslag en remote `mariadb-dump` niet veilig worden gecontroleerd.
+- Er is geen SSH-mutatie, mapcreatie, dump, sync, containerrestart, databasewijziging of deployment uitgevoerd.
+
+**Conclusie**: de productiebackup kan pas worden gestart nadat de Synology vanaf deze Mint-devmachine netwerk- en SSH-bereikbaar is. De releaseflow blijft correct geblokkeerd vóór iedere productie-mutatie.
+
+### Uitvoeringslog herhaalde Synology-preflight
+
+**Status**: Gedeeltelijk geslaagd op 2026-09-18; productiebackup niet gestart.
+
+- Nadat de SSH-service op Synology opnieuw is ingeschakeld, slaagden TCP-bereikbaarheid en SSH BatchMode-login.
+- De remote compose-directory en compose-file zijn bereikbaar.
+- De MariaDB-service/container en remote `mariadb-dump` zijn beschikbaar.
+- De centrale `REMOTE_BACKUP_ROOT` bestaat nog niet.
+- Daardoor kon vrije opslag op de beoogde backupmount nog niet worden gecontroleerd.
+- Er is geen remote map aangemaakt en geen dump, rsync, sync, restart of andere productie-mutatie uitgevoerd.
+
+**Conclusie**: alleen de remote backupmap moet nog expliciet worden aangemaakt en gecontroleerd. Daarna kan de productiebackup als afzonderlijke substap worden aangeboden.
+
+### Uitvoeringslog aanmaak centrale Synology-backupmap
+
+**Status**: Afgerond op 2026-09-18; productiebackup nog niet gestart.
+
+- De SSH-service is bereikbaar via BatchMode.
+- De centrale `REMOTE_BACKUP_ROOT` is op Synology aangemaakt met `mkdir -p`.
+- De directory is daarna read-only geverifieerd.
+- De vrije ruimte op de betreffende filesystem bedraagt ongeveer 2,99 TB.
+- Er is geen database-dump, rsync, sync, compose-actie, restart of deployment uitgevoerd.
+
+**Conclusie**: de centrale backupbestemming is beschikbaar en heeft voldoende vrije opslag voor de releasebackup. De volgende afzonderlijke substap is de daadwerkelijke productiebackup met checksum en metadata.
+
+### Uitvoeringslog daadwerkelijke productiebackup
+
+**Status**: Geblokkeerd op 2026-09-18; geen productiebackupbestand gemaakt.
+
+- De read-only productie-dumpaanroep is gestart via de Docker-MariaDB-client.
+- De productiehost en databaseverbinding werden bereikt.
+- De dump stopte op `db_privileges` bij de volledige export met routines, triggers en events.
+- Er is geen SQL-dump naar lokale of remote opslag geschreven.
+- Er is geen checksum, metadata-upload, sync, release-import, FE/MW-upload, restart of deployment uitgevoerd.
+- Tijdelijke lokale output is verwijderd.
+
+**Conclusie**: de Synology is bereikbaar en de backupmap is beschikbaar, maar de geconfigureerde productie-databasegebruiker heeft onvoldoende rechten voor de vereiste volledige backup. De volgende afzonderlijke substap is een read-only inspectie van de PROD-dumprechten en de beschikbare beheer-/backupaccount; er wordt zonder nieuwe toestemming geen rechtenwijziging uitgevoerd.
+
+### Uitvoeringslog read-only inspectie PROD-dumprechten
+
+**Status**: Afgerond op 2026-09-18; geen rechten gewijzigd.
+
+- De productieconfiguratie is veilig geparseerd zonder secretwaarden te tonen.
+- De eerste clientaanroep had een foutieve aanroepvorm en is niet als inhoudelijke PROD-uitkomst gebruikt.
+- De gecorrigeerde read-only PROD-authenticatiecontrole slaagde.
+- De geconfigureerde productiegebruiker heeft alle gecontroleerde rechten voor de volledige dump: `SELECT`, `SHOW VIEW`, `TRIGGER`, `EVENT`, `LOCK TABLES`, `PROCESS`, routine-definitierechten en `ALL PRIVILEGES`.
+- `mysql.user` is voor deze applicatiegebruiker niet uitleesbaar; er zijn geen accountnamen of grantteksten weergegeven.
+- Er is geen aparte backupaccountnaam geconfigureerd.
+- Er zijn geen `GRANT`, `CREATE USER`, `ALTER USER`, dump, upload, sync, restart of deploymentacties uitgevoerd.
+
+**Conclusie**: er is geen PROD-rechtenwijziging nodig. De eerdere `db_privileges`-melding moet worden herleid tot de eerdere clientaanroep/uitvoerroute. De volgende afzonderlijke substap is het opnieuw uitvoeren van uitsluitend de productiebackup met de gecorrigeerde Docker-clientaanroep.
+
+### Uitvoeringslog tweede poging productie-BE-backup
+
+**Status**: Geblokkeerd op 2026-09-18; geen productiebackupbestand gemaakt.
+
+- De gecorrigeerde Docker-MariaDB-clientaanroep is opnieuw uitgevoerd met een nieuwe ReleaseId.
+- De lokale dumpvalidatie faalde; de SQL-bestandsgrootte bleef nul.
+- De foutcategorie is opnieuw MariaDB routine-/privilegecontrole; er is geen valide dump gegenereerd.
+- De ReleaseId-directory is niet remote achtergebleven en er is geen upload uitgevoerd.
+- Er zijn geen sync-, import-, FE/MW-, compose-, restart- of andere productieacties uitgevoerd.
+
+**Conclusie**: de eerdere algemene grants-check bewijst niet dat de productiegebruiker routine-definities uit de benodigde MariaDB-systeemmetadata mag lezen. De volgende afzonderlijke substap is een gerichte read-only controle van de effectieve grantscope voor routine-export of het vaststellen van een bestaande remote beheer-/backupaccount. Zonder die controle wordt geen rechtenwijziging en geen nieuwe productiebackup geprobeerd.
+
+### Uitvoeringslog effectieve PROD-grantscope
+
+**Status**: Read-only inspectie afgerond op 2026-09-18; geen rechten gewijzigd.
+
+- PROD-authenticatie werkt.
+- De effectieve grantscope van de geconfigureerde PROD-gebruiker is database-scope, niet systeemscope.
+- Routine-informatie kan beperkt worden opgevraagd, maar `SHOW CREATE PROCEDURE` faalt.
+- `SHOW CREATE FUNCTION` slaagt; dit verklaart waarom een algemene routinecontrole misleidend positief kon lijken.
+- `mariadb-dump --routines` faalt op de procedure-definitiecontrole met een privilegefout.
+- In de remote composeconfiguratie is geen aparte backup-/beheeraccount op naamniveau gevonden.
+- Er zijn geen `GRANT`, `CREATE USER`, `ALTER USER`, dumpbestanden, uploads, syncs, restarts of deployments uitgevoerd.
+
+**Conclusie**: de productiegebruiker heeft onvoldoende effectieve rechten om stored-proceduredefinities te exporteren. De volgende afzonderlijke substap is een minimale, expliciet goed te keuren PROD-rechtenwijziging voor routine-export, of het configureren van een bestaand apart backupaccount. Zonder die stap blijft de productiebackup geblokkeerd.
+
+### Uitvoeringslog poging aparte PROD-backupaccount
+
+**Status**: Geblokkeerd op 2026-09-18; geen PROD-account of rechten gewijzigd.
+
+- Optie 2 is uitgevoerd voorbereid met een nieuw lokaal random secretbestand met mode `600`; dit bestand is bij mislukking verwijderd.
+- De remote MariaDB-container bevatte geen bruikbare rootomgeving voor `docker compose exec`.
+- In de remote projectconfiguratie stond wel een root-sleutel op naamniveau, maar de bijbehorende credential faalde bij een read-only root-authenticatiecontrole.
+- Daardoor kon `FamiliezBackup` niet worden aangemaakt en konden geen minimale grants worden toegekend.
+- Er zijn geen `CREATE USER`, `ALTER USER`, `GRANT`, databasewrites, dumps, uploads, syncs, restarts of deployments uitgevoerd.
+
+**Conclusie**: de productiebeheercredential in de projectconfiguratie is niet gelijk aan de credential van de draaiende MariaDB-container. De volgende noodzakelijke actie is het gecontroleerd herstellen van de actuele Synology/MariaDB-beheercredential, buiten deze releaseflow. Daarna kan optie 2 opnieuw worden uitgevoerd.
+
+### Uitvoeringslog herstel aparte PROD-backupaccount
+
+**Status**: Afgerond op 2026-09-18; backupaccount en dump zijn getest.
+
+- De bestaande `FamiliezBackup`-account bleek na de eerste accountaanmaakpoging al te bestaan.
+- Met de handmatig ingevoerde, werkende rootcredential is het accountwachtwoord opnieuw gezet.
+- De minimale dumprechten zijn toegepast: databaseleesrechten inclusief views, triggers, events en locks, globale `PROCESS` en `SELECT` op `mysql.proc`.
+- Een lokaal random wachtwoord wordt bewaard in een lokaal secretbestand met mode `600`; de waarde is niet weergegeven of gecommit.
+- De volledige PROD-dump is daarna read-only getest met `mariadb-dump --routines --triggers --events` en slaagde.
+- Een tussentijdse lokale test faalde alleen door een foutief relatief werkdirectorypad; de herhaalde test met absolute paden slaagde.
+- Er zijn geen datawijzigingen, syncs, uploads, restarts of applicatiedeployments uitgevoerd.
+
+**Conclusie**: de productiebackup kan nu met de aparte `FamiliezBackup`-account worden uitgevoerd. De volgende afzonderlijke substap is de daadwerkelijke productie-BE-backup naar `Backup/<ReleaseId>/BE/` met checksum en metadata.
+
+### Uitvoeringslog geslaagde productie-BE-backup
+
+**Status**: Afgerond op 2026-09-18; BE-backup staat op Synology.
+
+- ReleaseId: `20260918_164519`.
+- De productie-dump is gemaakt met `FamiliezBackup` via de Docker-MariaDB-client.
+- De dump bevat routines, triggers en events volgens de afgesproken backupopties.
+- Lokale dump-, checksum- en metadata-validatie: geslaagd.
+- Remote opslag: `REMOTE_BACKUP_ROOT/<ReleaseId>/BE/`.
+- Remote SQL-bestand, checksum en `metadata.json` bestaan en zijn niet leeg.
+- Remote SHA-256 en lokale SHA-256 matchen.
+- Dumpgrootte: 20.826.337 bytes.
+- De eerste uploadpoging via rsync faalde met exitcode 12; de tweede poging via gecontroleerde SSH-stream slaagde.
+- De backupvalidator is uitgebreid om geldige MariaDB-database-identificatie met dumpcommentaar te accepteren; gerichte tests bleven groen.
+- Geen `sync_db.py`, release-import, FE/MW-upload, compose-restart, rollback of deployment uitgevoerd.
+
+**Conclusie**: er is nu een gevalideerde productie-BE-backup beschikbaar op Synology. De volgende afzonderlijke substap is FE/MW-backup-preflight en deployvoorbereiding; productie-mutaties blijven apart geblokkeerd totdat daarvoor expliciete toestemming wordt gegeven.
+
+### Uitvoeringslog FE/MW-backup-preflight en deployvoorbereiding
+
+**Status**: Afgerond op 2026-09-18; geen FE/MW-backup of deployment uitgevoerd.
+
+- Lokale FE- en MW-bronnen, configuratie en requirements zijn aanwezig.
+- FE `dist` en FE/MW-componentmanifesten zijn aanwezig.
+- Stackmanifest, registry en release bundle zijn aanwezig.
+- Lokale tijdelijke stagingcontrole slaagde: FE 63.666 bestanden en MW 6.895 bestanden.
+- De bestaande ReleaseId `20260918_164519` is gecontroleerd tegen de remote BE-backup.
+- Remote FE-buildmap en MW-buildmap bestaan.
+- Remote compose-file en MariaDB-service zijn beschikbaar.
+- Remote BE-backup, vrije opslag en SSH zijn gericht read-only opnieuw bevestigd.
+- Een brede preflight rapporteerde eerst onjuiste remote failures; de gerichte hercontrole bevestigde alle remote onderdelen als `pass`.
+- Er is geen FE/MW-upload, sync, release-import, compose-actie, restart of deployment uitgevoerd.
+
+**Conclusie**: de lokale en remote FE/MW-deployvoorbereiding is gereed. De volgende afzonderlijke substap is het maken en uploaden van de FE- en MW-backups met ReleaseId `20260918_164519`, vóór enige vervanging of database-mutatie.
+
+### Uitvoeringslog geslaagde FE/MW-productiebackups
+
+**Status**: Afgerond op 2026-09-18; actieve productie-builds niet vervangen.
+
+- De huidige productie-FE-build is remote veiliggesteld onder `Backup/20260918_164519/FE/`.
+- FE-backup: read-only hercontrole geeft 10 bestanden inclusief metadata, 2.953.612 bytes.
+- De huidige productie-MW-build is remote veiliggesteld onder `Backup/20260918_164519/MW/`.
+- MW-backup: read-only hercontrole geeft 27 bestanden inclusief metadata, 310.267 bytes.
+- Voor FE en MW is niet-geheime metadata met component, ReleaseId, bestandstelling, grootte en status aangemaakt.
+- De kopie is op Synology zelf uitgevoerd; er was geen lokale bronupload nodig.
+- De actieve FE- en MW-mappen zijn niet gewijzigd.
+- Geen sync, release-import, nieuwe FE/MW-upload, compose-restart, rollback of deployment uitgevoerd.
+
+**Correctie na read-only Synology-hercontrole**:
+
+- De centrale FE- en MW-backupmappen bestaan daadwerkelijk onder ReleaseId `20260918_164519`.
+- De actieve buildmappen bevatten respectievelijk 9 FE-bestanden/2.953.509 bytes en 26 MW-bestanden/310.164 bytes; de extra backupbestanden zijn de componentmetadata.
+- De eerdere logaantallen `60` en `126` waren foutieve tellingen uit de eerste backupaanroep en worden niet langer als betrouwbaar beschouwd.
+- Een volledige read-only vergelijking exclusief `metadata.json` gaf voor FE 60 actieve/60 geback-upte bestanden, 0 ontbrekende, 0 extra en 0 gewijzigde hashes.
+- Dezelfde vergelijking gaf voor MW 126 actieve/126 geback-upte bestanden, 0 ontbrekende, 0 extra en 0 gewijzigde hashes.
+- De eerdere tellingen 9/10 en 26/27 kwamen door een beperkte `maxdepth`-controle; de eerdere melding `match: nee` was een foutieve preflightuitkomst.
+- Actieve en geback-upte FE/MW-bestanden hebben dezelfde totale bytes en SHA-256-hashes.
+
+**Conclusie**: voor ReleaseId `20260918_164519` zijn BE, FE en MW nu afzonderlijk en inhoudelijk exact gelijk aan de actieve productie-builds veiliggesteld op Synology.
+
+### Uitvoeringslog centrale release-metadata voor productiebackup
+
+**Status**: Afgerond op 2026-09-18; productie-applicatie nog niet gewijzigd.
+
+- Centrale `release-metadata.json` opgebouwd voor ReleaseId `20260918_164519`.
+- FE, MW en DB-componentmanifesten zijn opgenomen.
+- Stackcompatibiliteit is `passed`.
+- FE-, MW- en BE-backupstatussen zijn opgenomen.
+- De BE-backupchecksum is read-only opnieuw op Synology gecontroleerd.
+- Rollbackmateriaal staat op `available=true`.
+- `databaseRestoreRequiresConfirmation=true` en `dropDatabaseAllowed=false` zijn vastgelegd.
+- Het metadata-artifact is naar de ReleaseId-root op Synology geschreven en als geldige JSON gecontroleerd.
+- Een eerdere metadata-aanroep faalde door een pad-/configuratieprobleem; de uiteindelijke opbouw gebruikte de bevestigde releasegegevens en slaagde.
+- Geen `sync_db.py`, release-import, FE/MW-vervanging, compose-restart of deployment uitgevoerd.
+
+**Conclusie**: de releasebackup voor BE, FE en MW plus centrale metadata is compleet voor ReleaseId `20260918_164519`. De volgende afzonderlijke substap is een productie-deploy-preflight die alleen gates, bundle, backup en metadata controleert.
+
+### Uitvoeringslog productie-deploy-preflight
+
+**Status**: Geblokkeerd op 2026-09-18; geen productie-mutatie uitgevoerd.
+
+- Lokale FE/MW/DB-manifesten, registry, stack-manifest en release bundle bestaan, zijn niet leeg en zijn geldige JSON.
+- De bundle-checksum is geldig.
+- De stackcompatibiliteit in de bundle is `passed`.
+- De inhoudelijke release-identiteit klopt niet: de bundle heeft `releaseKey=release:12`, terwijl de productiebackup en metadata ReleaseId `20260918_164519` gebruiken.
+- De eerdere brede preflight rapporteerde daarnaast onbetrouwbare pad-/SSH-failures; gerichte controles van de remote backup zijn eerder geslaagd.
+- Door de releaseKey/ReleaseId-mismatch wordt de deployment bewust geblokkeerd. De bundle mag niet aan een andere productiebackup worden gekoppeld.
+- Er zijn geen `sync_db.py`, release-import, FE/MW-vervanging, compose-restart, rollback of deploymentacties uitgevoerd.
+
+**Conclusie**: eerst moet een nieuwe, gevalideerde release bundle worden opgebouwd met een expliciete releaseKey die overeenkomt met de gekozen productie-ReleaseId, of moet een nieuwe consistente ReleaseId worden gekozen. Dit is een afzonderlijke substap waarvoor expliciete goedkeuring nodig is.
+
+### Uitvoeringslog releaseKey gelijkmaken aan productie-ReleaseId
+
+**Status**: Afgerond op 2026-09-18; geen productieactie uitgevoerd.
+
+- De bestaande bundle-inhoud is behouden.
+- `releaseKey` is aangepast naar `release:20260918_164519`, gelijk aan de productie-ReleaseId.
+- De canonical bundlechecksum is opnieuw berekend en opgeslagen.
+- Bundlechecksum, schema-eigen validatie en releaseKey zijn lokaal gecontroleerd.
+- De gerichte bundle/importtests: 6 geslaagd.
+- Python-syntaxcontrole: geslaagd.
+- JSON-schema-validatie via een optionele externe module is niet uitgevoerd omdat die module lokaal ontbreekt; dit blokkeert de eigen contractvalidator niet.
+- Geen database, SSH, Synology, upload, sync, restart of deployment uitgevoerd.
+
+**Conclusie**: bundle en productiebackup gebruiken nu dezelfde release-identiteit. De volgende afzonderlijke substap is het opnieuw uitvoeren van de productie-deploy-preflight.
+
+### Uitvoeringslog geslaagde productie-deploy-preflight
+
+**Status**: Afgerond op 2026-09-18; geen productie-mutatie uitgevoerd.
+
+- Lokale bundlechecksum: geldig.
+- Bundle `releaseKey` en productie-ReleaseId: gelijk (`release:20260918_164519` / `20260918_164519`).
+- Stackcompatibiliteit: `passed`.
+- Remote BE-, FE- en MW-backups: aanwezig en metadata niet leeg.
+- Centrale release-metadata: aanwezig.
+- Remote compose/MariaDB-service: beschikbaar.
+- Remote opslagcontrole: geslaagd.
+- Geen `sync_db.py`, release-import, FE/MW-vervanging, compose-restart, rollback of deployment uitgevoerd.
+
+**Conclusie**: alle preflightgates voor ReleaseId `20260918_164519` zijn groen. De volgende afzonderlijke substap is de gecontroleerde productie-mutatie: structurele DB-sync, release-data-import, FE/MW-publicatie, restart en healthchecks.
+
+### Uitvoeringslog structurele DB-sync
+
+**Status**: Gestopt met fout op 2026-09-18; releaseflow gepauzeerd vóór release-import en applicatiepublicatie.
+
+- De correcte `sync_db.py --check-only` met geladen `deploy.env` gaf exitcode `10`: DEV en PROD verschillen.
+- De goedgekeurde structurele/routine-sync is gestart.
+- De sync eindigde met exitcode `4` in de categorie routine-/schemafout.
+- Er zijn geen releasegegevens geïmporteerd, geen FE/MW-bestanden vervangen en geen containers herstart.
+- De read-only nacontrole gaf opnieuw `Structure differs (DEV != PROD)`.
+- Omdat `sync_db.py` autocommit gebruikt, wordt PROD niet als volledig gelijkgesteld beschouwd; verdere productieacties zijn gestopt.
+
+**Conclusie**: de structurele DB-sync is niet succesvol afgerond en vereist een aparte foutanalyse vóór een nieuwe syncpoging. Mogelijk ontbreekt een routine-/schemarecht of is een specifieke routine niet compatibel met de productieomgeving. Geen release-import of applicatiedeployment uitvoeren totdat dit is opgelost.
+
+### Uitvoeringslog read-only analyse DB-syncfout
+
+**Status**: Analyse afgerond op 2026-09-18; geen nieuwe productie-mutatie uitgevoerd.
+
+- DEV- en PROD-verbinding/authenticatie: geen foutcategorie.
+- Ontbrekende create-, alter- of drop-routinerechten: niet vastgesteld.
+- Routine-definitieverschillen: 9.
+- Tabel-/kolomschemaverschillen: 10.
+- Overige afwijkingscategorieën: 2.
+- De bestaande syncfout is daarmee geen eenvoudige authenticatie- of rechtenblokkade; de PROD-state wijkt inhoudelijk af van DEV en minimaal één routine-/schemaactie is niet correct door de huidige syncflow verwerkt.
+- Er zijn geen SQL-definities, grantteksten, accountgegevens of secrets weergegeven.
+- Geen tweede syncpoging, release-import, FE/MW-vervanging, restart of deployment uitgevoerd.
+
+**Conclusie**: de huidige `sync_db.py` is onvoldoende veilig te vervolgen zonder een expliciete dry-run/planweergave van de 10 tabel-/kolom- en 9 routineverschillen en zonder vaststelling welke eerdere mutaties eventueel al zijn toegepast. De volgende afzonderlijke substap is een read-only verschilrapport met objectnamen en beoogde acties, gevolgd door een expliciete beslissing per wijzigingscategorie.
+
+### Uitvoeringslog read-only DEV/PROD-verschilanalyse
+
+**Status**: Analyse afgerond op 2026-09-18; geen databasewijziging uitgevoerd.
+
+**Belangrijkste uitkomst**:
+
+- Het vermoeden wordt bevestigd: DEV en PROD zitten in verschillende versioningfasen.
+- DEV-only versioningtabellen: `function_dependencies`, `function_registry`, `function_registry_audit` en `stack_manifests`.
+- PROD-only legacy release-tabellen: `be_release_changes`, `be_releases`, `fe_release_changes`, `fe_releases`, `mw_release_changes` en `mw_releases`.
+- DEV-only versioningprocedures: `AddFunctionDependency`, `GetActiveStackBuildNumber`, `GetActiveStackManifest`, `GetFunctionCapabilities`, `GetVersioningValidationProbe`, `PublishStackManifest`, `RegisterComponentManifest` en `UpdateFunctionRegistry`.
+- PROD-only legacyprocedure: `GetReleasesByComponent`.
+- Er is één tabel/kolomverschil en zijn 49 routine-definitieverschillen gevonden.
+- De gewone bestaande tabellen en routines verschillen daarnaast inhoudelijk; dit is niet automatisch als veilige versioningmigratie te behandelen.
+
+**Risico-inschatting**:
+
+- Nieuwe versioningtabellen/procedures naar PROD brengen: **medium**, omdat dit een schema-/routine-uitbreiding is die eerst als gecontroleerde migratie moet worden toegepast.
+- Oude release-tabellen uit PROD verwijderen: **high**, omdat dit destructief is en niet via een algemene sync mag gebeuren.
+- Routine-definitieverschillen automatisch vervangen: **high**, omdat 49 verschillen niet zonder object-voor-object beoordeling mogen worden overschreven.
+
+**Conclusie**: `sync_db.py` is niet het juiste instrument om deze DEV→PROD-versioningmigratie blind uit te voeren. De productieomgeving loopt achter op het nieuwe versioningmodel en bevat nog legacy release-objecten. De volgende substap moet een expliciet, read-only migratieplan maken voor alleen de DEV-only versioningobjecten, met legacy-verwijdering en algemene routineverschillen buiten scope totdat afzonderlijk beoordeeld.
+
+### Uitvoeringslog expliciet DEV->PROD versioning-migratieplan
+
+**Status**: Read-only plan afgerond op 2026-09-18; geen PROD-wijziging uitgevoerd.
+
+**Scope**:
+
+- Uitsluitend de nieuwe versioningtabellen en procedures voor function registry, dependencies, component-/stackmanifesten, capabilities en actieve stack/build-readers.
+- Legacy release-tabellen/procedure en de 49 algemene routineverschillen blijven buiten scope.
+- Geen release-import, FE/MW-actie, restart, grant- of secretwijziging.
+
+**Voorgestelde uitvoeringsvolgorde**:
+
+1. Tabellen, primaire sleutels, unieke constraints, JSON-checks en foreign keys.
+2. Basisprocedures: `UpdateFunctionRegistry`, `AddFunctionDependency`, `GetFunctionCapabilities`.
+3. Manifestprocedures: `RegisterComponentManifest`, `PublishStackManifest`.
+4. Leesprocedures: `GetActiveStackManifest`, `GetActiveStackBuildNumber`.
+5. DEV/PROD-validatie van objectinventaris, routine-aanroepen, key-contract, actieve stack en capabilities.
+
+**Preconditions**:
+
+- `GetTranNo` en alle benodigde databasefunctionaliteit bestaan in PROD.
+- Initvolgorde en foreign keys zijn lokaal gecontroleerd.
+- PROD-objecten worden niet vervangen zonder signatuur- en semantiekvergelijking.
+- De change-set raakt geen legacy-objecten of algemene routineverschillen.
+
+**Rollbackgrens en risico**:
+
+- Vóór uitvoering in PROD kan het change-set worden aangepast of ingetrokken.
+- Na creatie of wijziging van een PROD-object volgt geen automatische destructieve rollback; daarvoor is aparte goedkeuring nodig.
+- Risico’s zijn vooral initvolgorde, afwijkende PROD-signaturen, bestaande constraints/records en ontbrekende procedureafhankelijkheden.
+
+**Conclusie**: de volgende afzonderlijke substap is een lokale change-set/diffvalidatie van precies deze versioningobjecten, inclusief afhankelijkheidsgrafiek en fresh-install/compilecontrole. Pas na die validatie wordt een PROD-uitvoering ter goedkeuring aangeboden.
+
+### Uitvoeringslog compacte PROD-versioningmigratie
+
+**Status**: Uitgevoerd en read-only gevalideerd op 2026-09-18; release-data nog niet geïmporteerd.
+
+- De nieuwe versioningtabellen zijn op PROD aanwezig: `function_registry`, `function_dependencies`, `function_registry_audit`, `component_manifests` en `stack_manifests`.
+- De zeven kernprocedures zijn aanwezig: registry-update, dependency-update, capabilities, componentmanifestregistratie, stackpublicatie en de twee actieve-stack/build-readers.
+- `GetActiveStackBuildNumber()` is succesvol aangeroepen en geeft momenteel een lege actieve-stackstatus terug; dit is verwacht vóór release-data-import.
+- PROD-legacytabellen zijn behouden: zes legacy release-tabellen blijven aanwezig.
+- `GetReleasesByComponent` is behouden.
+- Er is geen algemene routine-sync uitgevoerd en de 49 overige routineverschillen zijn niet overschreven.
+- Er is geen release-bundle geïmporteerd, geen FE/MW-bestand vervangen en geen container herstart.
+
+**Bewuste scopekeuze**:
+
+- `GetVersioningValidationProbe` is niet naar PROD gebracht; dit was een tijdelijke DEV-validatieprobe en geen runtimecomponent van de releaseketen.
+- Legacy cleanup blijft buiten scope.
+
+**Conclusie**: PROD bevat nu de noodzakelijke kernstructuur voor de nieuwe versioning- en manifestketen, zonder legacy-objecten te verwijderen of algemene PROD-routines te overschrijven. De volgende afzonderlijke substap is release-data-import via de bundle, gevolgd door read-only databasevalidatie.
+
+### Uitvoeringslog PROD release-data-import
+
+**Status**: Afgerond op 2026-09-18; FE/MW-publicatie en restart nog niet uitgevoerd.
+
+- De gevalideerde release bundle is via de bestaande key-gebaseerde stored procedures naar PROD geïmporteerd.
+- Geïmporteerd: 158 functies, 2 dependencies, 3 componentmanifesten en 1 stackmanifest.
+- Read-only nacontrole: precies 1 actieve stack.
+- Actieve stackcompatibiliteit: `passed`.
+- Actief stack buildnummer: `12`.
+- PROD registry- en dependency-aantallen komen overeen met de release bundle.
+- De 6 legacy release-tabellen en `GetReleasesByComponent` zijn bewust behouden.
+- Geen `sync_db.py`, legacy cleanup, FE/MW-bestandsvervanging, compose-restart, rollback of volledige deployment uitgevoerd.
+
+**Conclusie**: de nieuwe versioningstructuur en de concrete release-data zijn nu in PROD aanwezig en gevalideerd. De volgende afzonderlijke substap is FE/MW-publicatie naar de actieve buildmappen, gevolgd door gecontroleerde restart en healthchecks.
+
+### Uitvoeringslog gecorrigeerde PROD-compatibiliteitsgate
+
+**Status**: Afgerond op 2026-09-18; geen FE/MW-publicatie of restart uitgevoerd.
+
+- Een eerste gate-aanroep rapporteerde onjuiste failures door een te strenge proceduretelling en verkeerde verwerking van procedure-resultsets.
+- Directe read-only SQL-validatie bevestigde: 1 actieve stack, 1 actieve `passed` stack, build `12`, 158 functies, 2 dependencies, 3 componentmanifesten en 1 stackmanifest.
+- Alle 7 bedoelde kernprocedures zijn aanwezig.
+- `GetActiveStackBuildNumber()`, `GetActiveStackManifest()` en `GetFunctionCapabilities()` leveren elk een resultset.
+- De release bundle en componenten blijven inhoudelijk consistent met de PROD-aantallen.
+- Er zijn geen databasewrites, FE/MW-bestandswijzigingen, compose-restarts of deploymentacties uitgevoerd.
+
+**Conclusie**: de compatibiliteitsgate is inhoudelijk groen; de eerdere FAIL was een controleharnessfout. De volgende afzonderlijke substap is FE/MW-publicatie naar de actieve buildmappen.
+
+### Uitvoeringslog FE/MW-publicatie en rollback na kopieerfout
+
+**Status**: Publicatie niet afgerond; rollback naar vorige productie-build geslaagd op 2026-09-18.
+
+- De tijdelijke FE/MW-staging bevatte respectievelijk 8 en 31 bestanden.
+- Tijdens de remote vervanging faalde de tweede tar-kopie nadat de actieve mappen waren leeggemaakt; daardoor ontstond tijdelijk een gedeeltelijke FE/MW-state.
+- De actieve FE- en MW-mappen zijn direct hersteld vanuit de ReleaseId-backups.
+- Herstelvalidatie: FE exact gelijk aan backup (`FE_MATCH=true`), MW exact gelijk aan backup (`MW_MATCH=true`).
+- De actieve productie-builds staan weer op de vorige, gevalideerde staat.
+- Geen containerrestart, healthcheck, release-import, databasewijziging of verdere deployment uitgevoerd.
+
+**Conclusie**: de nieuwe FE/MW-publicatie is niet toegepast. De rollbackfunctie werkte voor deze fout; een volgende publicatiepoging vereist eerst een robuustere atomische staging/swapmethode die de actieve map niet leegt voordat de nieuwe inhoud volledig klaarstaat.
+
+### Uitvoeringslog expliciete Synology-stagingstructuur
+
+**Status**: Afgerond op 2026-09-18; staging voorbereid, actieve productie niet gewijzigd.
+
+- Nieuwe stagingroot aangemaakt onder `/volume1/docker/familiez/Staging/20260918_164519/`.
+- FE-stagingmap: `Staging/20260918_164519/FE/`.
+- MW-stagingmap: `Staging/20260918_164519/MW/`.
+- Niet-geheime kandidaatmetadata aangemaakt met `purpose=candidate` en `status=prepared`.
+- FE- en MW-stagingmappen zijn bewust nog leeg; er zijn geen nieuwe bestanden gekopieerd.
+- De bestaande `Backup/20260918_164519/` blijft de officiële rollbackbron.
+- Geen actieve buildmap gewijzigd, geen container herstart en geen healthcheck/deployment uitgevoerd.
+
+**Conclusie**: de staginglocatie is nu duidelijk zichtbaar op rootniveau van de Familiez-deploymentmap en gescheiden van `Backup`. De volgende afzonderlijke substap is nieuwe FE/MW-bestanden naar deze stagingmappen kopiëren en daar volledig controleren.
+
+### Uitvoeringslog gevulde en gevalideerde Synology-staging
+
+**Status**: Afgerond op 2026-09-18; actieve productie niet gewijzigd.
+
+- Nieuwe FE-bestanden zijn naar `Staging/20260918_164519/FE/` gekopieerd.
+- Nieuwe MW-bestanden zijn naar `Staging/20260918_164519/MW/` gekopieerd.
+- Stagingbestandstelling: FE 8 bestanden, MW 31 bestanden.
+- Read-only SHA-256-vergelijking met de lokale bronnen: FE `HASH_MATCH=true`, MW `HASH_MATCH=true`.
+- De officiële `Backup/20260918_164519/`-rollbackmappen zijn niet gewijzigd.
+- De actieve FE- en MW-buildmappen zijn niet gewijzigd.
+- Geen compose-restart, healthcheck, databaseactie of deployment uitgevoerd.
+
+**Conclusie**: de nieuwe FE/MW-release staat gecontroleerd klaar in de zichtbare Synology-stagingmap. De volgende afzonderlijke substap is het gecontroleerd vervangen van de actieve FE/MW-buildmappen vanuit staging.
+
+### Uitvoeringslog FE/MW-vervanging vanuit staging
+
+**Status**: Vervanging mislukt; automatische rollback geslaagd op 2026-09-18.
+
+- De vervanging is gestart vanuit `Staging/20260918_164519/`.
+- De remote kopieeropdracht faalde voordat de publicatie als geslaagd kon worden gemarkeerd.
+- De ingebouwde rollback heeft FE en MW teruggezet vanuit `Backup/20260918_164519/`.
+- Read-only nacontrole: FE actief 60 bestanden / backup 60; MW actief 126 bestanden / backup 126.
+- De actieve FE/MW-builds zijn daarmee weer gelijk aan de officiële rollbackbackups.
+- Geen containerrestart, healthcheck, databaseactie, release-import of verdere deployment uitgevoerd.
+
+**Conclusie**: de productieomgeving staat weer op de vorige, gevalideerde FE/MW-build. De staginginhoud blijft beschikbaar voor analyse; een nieuwe publicatiepoging vereist eerst diagnose van de remote kopieerfout.
+
+### Uitvoeringslog diagnose FE/MW-kopieerfout
+
+**Status**: Read-only diagnose afgerond op 2026-09-18; geen nieuwe publicatie uitgevoerd.
+
+- Stagingroot, actieve FE/MW-mappen en officiële backupmappen bestaan.
+- Alle gecontroleerde mappen zijn schrijfbaar voor de deploygebruiker.
+- FE actief: 60 bestanden; MW actief: 126 bestanden; backups en staging zijn bereikbaar.
+- Vrije filesystemcontrole op staging en actieve buildlocaties slaagde.
+- Een tijdelijke schrijfproef buiten de applicatiepaden slaagde.
+- Er is geen opslag-, permissie- of ontbrekende-mapblocker gevonden.
+- De eerdere fout wordt daarom toegeschreven aan de samengestelde tar/remote-shellopdracht; de actieve FE/MW-state bleef door rollback correct.
+
+**Conclusie**: een nieuwe publicatiepoging kan eenvoudiger per component en met expliciete tussencontroles worden uitgevoerd. Daarvoor is opnieuw expliciete toestemming nodig omdat de actieve productie-buildmappen opnieuw worden gewijzigd.
+
+**Aanvulling na retry**:
+
+- Een afzonderlijke retry voor FE faalde in de shellcontrole; de tar-kopie zelf was niet de primaire blocker.
+- De oorzaak was dat historische `voorgaande_versie`-bestanden in sommige tellingen werden meegerekend en dat de FE-staging aanvankelijk `nginx.conf` miste.
+- FE-staging is aangevuld met `nginx.conf`.
+- De actieve FE-rootinhoud is read-only hersteld en matcht de officiële FE-backup: 9 rootbestanden, hashes gelijk, exclusief metadata en historische submap.
+- De actieve MW-rootinhoud matcht eveneens de officiële MW-backup: 26 rootbestanden, hashes gelijk, exclusief metadata en historische submap.
+- De nieuwe FE/MW-release is niet actief gepubliceerd en geen container is herstart.
+
+**Conclusie**: de productieomgeving staat weer exact op de vorige FE/MW-release. Een nieuwe publicatiepoging moet de historische submap expliciet buiten de actieve inhoud houden en `nginx.conf` in FE-staging opnemen.
+
+### Scopebesluit historische `voorgaande_versie`-mappen
+
+**Besluit**: vanaf 2026-09-18 vallen bestaande `voorgaande_versie`-mappen volledig buiten de nieuwe release-, staging- en rollbackmethodiek.
+
+- Deze mappen zijn historische resten van de oude deploymentmethode.
+- Vergelijkingen, bestandstellingen, stagingkopieën en rollbackcontroles voor de nieuwe release negeren deze mappen.
+- De officiële rollbackbron blijft `Backup/<ReleaseId>/FE|MW|BE/`.
+- De `voorgaande_versie`-mappen worden niet door deze releaseflow verwijderd of aangepast.
+- Frans verwijdert deze historische mappen later zelf als afzonderlijke opruimactie.
+
+**Gevolg voor vervolg**: nieuwe FE/MW-publicatie vergelijkt uitsluitend de actuele rootinhoud met `Staging/<ReleaseId>/FE|MW`; historische submappen zijn niet relevant voor de releasebeoordeling.
+
+### Uitvoeringslog geslaagde FE/MW-publicatie vanuit staging
+
+**Status**: Afgerond op 2026-09-18; containers nog niet herstart.
+
+- FE en MW zijn per component vanuit `Staging/20260918_164519/` naar de actieve rootmappen gekopieerd met `cp`.
+- `voorgaande_versie` is volledig buiten scope gehouden.
+- FE-staging bevat de benodigde `nginx.conf`.
+- FE actieve rootinhoud: 9 bestanden; inhoudelijk gelijk aan staging.
+- MW actieve rootinhoud: 31 bestanden; inhoudelijk gelijk aan staging nadat uitgesloten Python-cachebestanden zijn verwijderd.
+- De officiële `Backup/20260918_164519/`-rollbackmappen zijn niet gewijzigd.
+- Geen compose-restart, healthcheck, databaseactie of verdere deployment uitgevoerd.
+
+**Conclusie**: de nieuwe FE/MW-bestanden staan actief op Synology en zijn per component vanuit zichtbare staging gepubliceerd. De volgende afzonderlijke substap is een gecontroleerde containerrestart met daarna healthchecks.
+
+### Uitvoeringslog uitsluiten ontwikkelmappen uit MW-deployment
+
+**Status**: Afgerond op 2026-09-18; containers niet herstart.
+
+- `.github` en `.vscode` zijn toegevoegd aan `MW_EXCLUDES` in de lokale deployconfiguratie en het voorbeeldbestand.
+- De mappen zijn verwijderd uit MW-staging en de actieve MW-root.
+- Historische `voorgaande_versie` bleef volledig buiten scope.
+- Actuele MW-root na opschoning: 27 bestanden.
+- MW-staging na opschoning: 27 bestanden.
+- Read-only hashvergelijking: 0 verschillen.
+- De officiële MW-backup is niet gewijzigd.
+- Geen compose-restart, healthcheck of verdere deployment uitgevoerd.
+
+**Conclusie**: repository- en editorconfiguratie worden niet meer naar de MW-runtime gedeployed. De actieve MW-root en staging zijn weer inhoudelijk gelijk.
+
+### Uitvoeringslog gecontroleerde FE/MW-restart en healthchecks
+
+**Status**: Restart en basishealthchecks afgerond op 2026-09-18.
+
+- FE en MW zijn gecontroleerd herstart via de bestaande Synology-compose-stack.
+- MariaDB bleef actief en rapporteerde `healthy`.
+- FE- en MW-containers draaien.
+- MW root endpoint: HTTP 200.
+- Publieke `/versioning/stack-build`: HTTP 200.
+- `/capabilities`: HTTP 401 zonder authenticatie; dit is verwacht voor het beveiligde endpoint.
+- `/pingAPI`: HTTP 422 zonder de verplichte timestampparameter; dit is verwachte API-validatie.
+- Een eerdere publieke versioningcheck gebruikte een samengestelde URL en rapporteerde daardoor onjuiste failures; directe controle via Synology localhost bevestigde de endpointwerking.
+- Geen rollback, databasewijziging of verdere deployment uitgevoerd.
+
+**Conclusie**: de nieuwe FE/MW-build draait na restart en de publieke stack-buildroute werkt. De volgende stap is een beperkte geauthenticeerde smoke test en daarna de release afronden; productie-rollout is nog niet als volledig geslaagd gemarkeerd totdat die smoke test is uitgevoerd.
+
+### Uitvoeringslog handmatige Release Dashboard-smoketest
+
+**Status**: Afgerond op 2026-09-18.
+
+- Frans heeft na login het Release Dashboard geopend.
+- De pagina toont de verwachte stackstatus en componentinformatie.
+- De geauthenticeerde `/capabilities`-keten en de Release Dashboard-weergave zijn daarmee handmatig bevestigd.
+- De automatische healthchecks en directe MW-endpointcontroles blijven geldig.
+- Geen database-, rollback- of verdere deploymentactie uitgevoerd.
+
+**Conclusie**: de release is functioneel gecontroleerd inclusief Release Dashboard. De volgende stap is release-afronding: wijzigingen reviewen, commits/pushes per repository voorbereiden en het implementatieplan afsluiten.
+
 ---
 
 ## LEGACY-NASLAG — oorspronkelijke GitHub Actions-stappen 10/11
