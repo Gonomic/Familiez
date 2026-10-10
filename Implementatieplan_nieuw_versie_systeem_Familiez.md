@@ -2136,6 +2136,22 @@ Controleren dat root `.env.prod` en andere secretachtige bestanden niet in de fe
 - Daarom blijft deze staan totdat duidelijk is dat de nieuwe release stabiel genoeg is en de afgesproken bewaartermijn is verstreken.
 - Verwijderen gebeurt later bewust en afzonderlijk; niet als onderdeel van een normale deploy.
 
+### Uitvoeringslog metadataherstel stackbuild 13
+
+**Status**: Metadataherstel afgerond op 2026-10-10; volledige applicatiedeploy niet uitgevoerd.
+
+- Kandidaat `release:13` is lokaal gegenereerd en op DEV gevalideerd. Componentversies: FE 6.0.0, MW 6.0.0 en DB 7.0.0; stackcompatibiliteit geslaagd.
+- De read-only PROD-preflight bevestigde gelijke BE-structuur en routines. Alleen de releaseregistratie en actieve stackmanifest verschilden.
+- De gevalideerde bundle is met expliciete PROD-databaseconfiguratie geimporteerd. De import registreerde 161 functies, 2 dependencies, 3 componentmanifesten en 1 stackmanifest. De read-only controle achteraf meldde PROD gelijk aan `release:13`.
+- Er zijn geen applicatiebestanden, BE-routines, services of applicatiedata aangepast; er is geen volledige databasebackup gemaakt.
+- De itemized rsync-dry-run liet zien dat de FE-bestandschecksums gelijk zijn en dat alleen MW `versioning/manifest.json` inhoudelijk afwijkt. De vergelijking toont daarnaast metadata-attribuutverschillen en verwijderingen van uitgesloten paden.
+
+**Blokkade voor volgende volledige release**:
+
+- `Deploy/synology/deploy_to_synology.sh` gebruikt bij de MW-vervanging `rsync --delete` met alleen `REMOTE_BACKUP_SUBDIR` als remote-exclusie. De dry-run toont dat ook `.env`, `BESTANDEN`, `.github` en `.sonar` op de remote MW-buildlocatie geraakt kunnen worden.
+- De preflightvergelijking gebruikt niet dezelfde uitsluitingen als staging/deploy en geeft daardoor ook false positives voor historische backups en metadata-attributen.
+- Start geen volledige deploy voordat zowel de daadwerkelijke MW-sync als de vergelijking veilig en consistent zijn aangepast en getest. Dit herstel is nog niet uitgevoerd.
+
 ---
 
 ## LEGACY-NASLAG — oorspronkelijke GitHub Actions-stappen 10/11
